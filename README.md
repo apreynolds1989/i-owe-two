@@ -18,6 +18,9 @@ Click a number to see its PRs; click a PR to open it on GitHub.
 
 It works for any GitHub account or organization; nothing in it is specific to one team.
 
+> [!IMPORTANT]
+> ReciPRocity was developed largely with the assistance of AI tools. Please read the [Disclaimer](#disclaimer) before you install or use it.
+
 ## Install
 
 You need **Node.js 22 or newer**.
@@ -119,6 +122,14 @@ Layout:
 - `src/renderer`: the React UI.
 - `src/shared`: types and validation used by both sides.
 - `build/installer.nsh`: Windows installer hooks. electron-builder loads this file automatically.
+
+## Disclaimer
+
+ReciPRocity was developed largely with the assistance of AI tools. While care has been taken over its design, security and testing, AI-assisted software can contain errors or security weaknesses that aren't immediately apparent.
+
+The software is provided "as is", without warranty of any kind, as set out in the [LICENSE](LICENSE). Use of ReciPRocity is entirely at your own discretion and risk. Before installing it or giving it a GitHub token, please review the source code and [SECURITY.md](SECURITY.md), and decide whether it meets your own and your organization's requirements. If your organization has policies on third-party or AI-assisted tools, check that using ReciPRocity complies with them.
+
+The maintainer accepts no liability for any loss, damage or other consequences arising from its use.
 
 ## License
 
