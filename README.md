@@ -99,7 +99,7 @@ The details, and the remaining risks stated plainly, are in [SECURITY.md](SECURI
 
 ## Support
 
-Bugs and questions are welcome as GitHub issues; see [SECURITY.md](SECURITY.md#reporting-a-problem) for how to report a security issue. This project is maintained on a voluntary, best-effort basis, with no obligation to respond, fix or keep it maintained.
+Bugs and questions are welcome as GitHub issues, and pull requests are welcome too; see [CONTRIBUTING.md](CONTRIBUTING.md). See [SECURITY.md](SECURITY.md#reporting-a-problem) for how to report a security issue. This project is maintained on a voluntary, best-effort basis, with no obligation to respond, fix or keep it maintained.
 
 ## For developers
 

@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest an improvement or a new feature.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Suggestions are welcome. This project is maintained on a best-effort basis, so there's no guarantee a request will be picked up. See [CONTRIBUTING.md](https://github.com/apreynolds1989/reciprocity/blob/main/CONTRIBUTING.md).
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: What you're trying to do, and what gets in the way today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Security model
+      description: The app is deliberately read-only and only talks to api.github.com (see SECURITY.md).
+      options:
+        - label: This request doesn't need write access to GitHub, broader token permissions or any other network destination.
