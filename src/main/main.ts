@@ -183,9 +183,9 @@ function refresh(force = false): void {
 // ---------- tray and panel ----------
 
 function updateTooltip(m?: SprintMetrics) {
-  if (!m) return tray.setToolTip('Sprint Widget');
+  if (!m) return tray.setToolTip('ReciPRocity');
   const r = reviewRatio(m.reviewed.count, m.authored.count);
-  tray.setToolTip(`Sprint Widget · ratio ${r.display} · ${r.label}`);
+  tray.setToolTip(`ReciPRocity · ratio ${r.display} · ${r.label}`);
 }
 
 function setView(next: View) {
@@ -249,7 +249,7 @@ function rebuildTrayMenu() {
     click: () => setTheme(value),
   });
   const menu = Menu.buildFromTemplate([
-    { label: 'Open Sprint Widget', click: showPanel },
+    { label: 'Open ReciPRocity', click: showPanel },
     { label: 'Refresh', enabled: s.hasToken && !!s.settings, click: () => refresh() },
     { type: 'separator' },
     { label: 'Change sprint…', enabled: s.hasToken, click: () => (setView('start'), showPanel()) },
@@ -265,7 +265,7 @@ function rebuildTrayMenu() {
       click: (item) => setOpenAtLogin(item.checked),
     },
     { type: 'separator' },
-    { label: 'Quit Sprint Widget', click: () => app.quit() },
+    { label: 'Quit ReciPRocity', click: () => app.quit() },
   ]);
   tray.removeAllListeners('right-click');
   tray.on('right-click', () => tray.popUpContextMenu(menu));

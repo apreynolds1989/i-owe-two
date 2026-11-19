@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AppState, SprintMetrics } from '../shared/types';
-import logo from '../../assets/icon.png';
+import titleDark from '../../assets/title-dark.png';
+import titleLight from '../../assets/title-light.png';
 import {
   CloseIcon, MonitorIcon, MoonIcon, MoreIcon, PencilIcon, PinIcon, PullRequestIcon, RefreshIcon, ReviewersIcon,
   ReviewIcon, SunIcon,
@@ -96,10 +97,11 @@ export function App() {
   return (
     <div className={`panel${state.pinned ? ' pinned' : ''}`}>
       <header className="header">
-        <div className="brand">
-          <img src={logo} alt="" width={26} height={26} />
-          <span>Sprint Widget</span>
-        </div>
+        {/* The page follows prefers-color-scheme (driven by the theme choice), so the title swaps without any JS. */}
+        <picture className="brand">
+          <source media="(prefers-color-scheme: dark)" srcSet={titleDark} />
+          <img src={titleLight} alt="ReciPRocity" height={30} />
+        </picture>
         <div className="header-actions">
           {state.view === 'metrics' && (
             <button
@@ -150,7 +152,7 @@ export function App() {
                 )}
                 <hr />
                 <button role="menuitem" onClick={() => window.sprint.quit()}>
-                  Quit Sprint Widget
+                  Quit ReciPRocity
                 </button>
               </div>
             )}

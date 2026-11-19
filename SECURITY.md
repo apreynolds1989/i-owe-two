@@ -1,6 +1,6 @@
 # Security
 
-Sprint Widget is designed so that the worst realistic outcome of anything going wrong is "someone could read pull-request titles and reviews". It should never be "someone could change code, run commands on my machine, or act as me on GitHub". This page explains how, so you can check before you run it.
+ReciPRocity is designed so that the worst realistic outcome of anything going wrong is "someone could read pull-request titles and reviews". It should never be "someone could change code, run commands on my machine, or act as me on GitHub". This page explains how, so you can check before you run it.
 
 ## Your GitHub token
 
@@ -87,4 +87,6 @@ The UI is built with Electron and follows Electron's [security checklist](https:
 
 ## Reporting a problem
 
-If you find a security issue, tell the repository owner directly rather than opening a public issue.
+If you find a security issue or a bug, please open an issue on this repository. For a vulnerability that could put users at risk if disclosed before a fix, please use GitHub's private vulnerability reporting instead (**Security** tab › **Report a vulnerability**).
+
+This project is maintained on a voluntary, best-effort basis. The maintainer has no obligation to respond to issues, accept contributions, provide fixes or keep the project maintained, and may stop doing so at any time. It is provided as-is, as set out in the [LICENSE](LICENSE).
