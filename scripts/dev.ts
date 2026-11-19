@@ -31,7 +31,7 @@ const nodeBuild = (entry: string, fileName: string, format: 'es' | 'cjs'): Inlin
   },
 });
 
-console.log('[sprint-widget] Building...');
+console.log('[reciprocity] Building...');
 rmSync(dist, { recursive: true, force: true });
 await build({
   configFile: false,
@@ -49,7 +49,7 @@ await build({
 });
 await build(nodeBuild(join(src, 'main', 'main.ts'), 'main.js', 'es'));
 await build(nodeBuild(join(src, 'preload', 'preload.ts'), 'preload.cjs', 'cjs'));
-console.log('[sprint-widget] Built to dist/.');
+console.log('[reciprocity] Built to dist/.');
 
 if (!process.argv.includes('--build-only')) {
   // In Node, require('electron') returns the path to the Electron binary, downloading it (and
@@ -63,7 +63,7 @@ if (!process.argv.includes('--build-only')) {
   for (const name of ['ELECTRON_RUN_AS_NODE', 'NODE_OPTIONS', 'NODE_TLS_REJECT_UNAUTHORIZED', 'NODE_EXTRA_CA_CERTS', 'ELECTRON_ENABLE_LOGGING']) {
     delete env[name];
   }
-  console.log('[sprint-widget] Starting. Look for the icon in your system tray (or menu bar). Quit from its menu.');
+  console.log('[reciprocity] Starting. Look for the icon in your system tray (or menu bar). Quit from its menu.');
   const child = spawn(electronBinary, [root], { stdio: 'inherit', env });
   child.on('exit', (code) => process.exit(code ?? 0));
 }

@@ -1,8 +1,9 @@
 {
-  "name": "sprint-widget",
-  "productName": "Sprint Widget",
+  "name": "reciprocity",
+  "productName": "ReciPRocity",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "Tray widget showing your PRs authored and reviewed this sprint, your review ratio, and open PRs still needing reviewers",
   "main": "dist/main.js",
@@ -40,8 +41,8 @@
     }
   },
   "build": {
-    "appId": "dev.sprintwidget.app",
-    "productName": "Sprint Widget",
+    "appId": "io.github.apreynolds1989.reciprocity",
+    "productName": "ReciPRocity",
     "directories": {
       "output": "release"
     },

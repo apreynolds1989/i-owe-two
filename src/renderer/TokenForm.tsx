@@ -86,7 +86,7 @@ export function TokenForm({ state }: { state: AppState }) {
             and choose <b>Generate new token</b>.
           </li>
           <li>
-            Name it <b>Sprint Widget</b> and pick an expiry (90 days is a good default).
+            Name it <b>ReciPRocity</b> and pick an expiry (90 days is a good default).
           </li>
           <li>
             Set <b>Resource owner</b> to the organization (or your own account) whose pull requests you want to see, and{' '}

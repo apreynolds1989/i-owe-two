@@ -29,7 +29,7 @@ export function createPanel(preload: string, icon: NativeImage): BrowserWindow {
     fullscreenable: false,
     skipTaskbar: true,
     hasShadow: false,
-    title: 'Sprint Widget',
+    title: 'ReciPRocity',
     icon,
     webPreferences: {
       preload,

@@ -1,4 +1,9 @@
-# Sprint Widget
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/title-dark.png" />
+    <img src="assets/title-light.png" alt="ReciPRocity" height="80" />
+  </picture>
+</h1>
 
 A small tray app (like JetBrains Toolbox) that shows your GitHub pull-request numbers for a sprint:
 
@@ -15,11 +20,11 @@ It works for any GitHub account or organization; nothing in it is specific to on
 
 ## Install
 
-You need **Node.js 22 or newer** and access to this repository.
+You need **Node.js 22 or newer**.
 
 ```bash
-git clone <this repo's URL>
-cd sprint-widget
+git clone https://github.com/apreynolds1989/reciprocity.git
+cd reciprocity
 npm ci
 ```
 
@@ -28,7 +33,7 @@ Then either:
 - **Run it from the repo:** `npm start`. This is handy for developers; everyone else should install it (below), which also gets you the extra hardening of the installed app.
 - **Install it as an app:**
   1. Run `npm run dist`.
-  2. Run the installer it creates in `release/`: `Sprint Widget Setup <version>.exe` on Windows, or the `.dmg` on Mac.
+  2. Run the installer it creates in `release/`: `ReciPRocity Setup <version>.exe` on Windows, or the `.dmg` on Mac.
 
   After that it's in your Start menu (Windows) or Applications (Mac), and you don't need the terminal. Because you built it yourself, Windows and macOS don't show an "unknown app" warning.
 
@@ -39,7 +44,7 @@ Then either:
 The app asks for a GitHub **fine-grained personal access token** with **read-only** access. It can't change anything on GitHub with it, and it refuses classic tokens because those can have broad access.
 
 1. On GitHub, go to **Settings › Developer settings › Personal access tokens › Fine-grained tokens** and choose **Generate new token**. (Direct link: https://github.com/settings/personal-access-tokens)
-2. Name it **Sprint Widget** and pick an expiry. 90 days is a good default.
+2. Name it **ReciPRocity** and pick an expiry. 90 days is a good default.
 3. Set **Resource owner** to the organization, or your own account, whose pull requests you want to see. Set **Repository access** to **All repositories**.
 4. Under **Permissions**, set **Pull requests** to **Read-only**. **Metadata** is added as read-only automatically. Leave everything else as **No access**.
 5. Generate the token, copy it, and paste it into the app.
@@ -77,7 +82,7 @@ Installing a new version over the old one keeps your settings and token. Please 
 
 ## Removing it
 
-- **Installed app:** uninstall it from Windows Settings › Apps, or drag it out of Applications on Mac. The Windows uninstaller also deletes the app's saved data (including the encrypted token) and the installer copy it keeps in `%LOCALAPPDATA%\sprint-widget-updater`.
+- **Installed app:** uninstall it from Windows Settings › Apps, or drag it out of Applications on Mac. The Windows uninstaller also deletes the app's saved data (including the encrypted token) and the installer copy it keeps in `%LOCALAPPDATA%\reciprocity-updater`.
 - **Token:** to switch off its access completely, delete it on GitHub at https://github.com/settings/personal-access-tokens. In the app, **Change token… › Remove the saved token** deletes it from your computer.
 
 ## Safety
@@ -91,6 +96,10 @@ The short version:
 - No telemetry, no auto-update, no background activity.
 
 The details, and the remaining risks stated plainly, are in [SECURITY.md](SECURITY.md).
+
+## Support
+
+Bugs and questions are welcome as GitHub issues; see [SECURITY.md](SECURITY.md#reporting-a-problem) for how to report a security issue. This project is maintained on a voluntary, best-effort basis, with no obligation to respond, fix or keep it maintained.
 
 ## For developers
 
@@ -110,3 +119,7 @@ Layout:
 - `src/renderer`: the React UI.
 - `src/shared`: types and validation used by both sides.
 - `build/installer.nsh`: Windows installer hooks. electron-builder loads this file automatically.
+
+## License
+
+[MIT](LICENSE)

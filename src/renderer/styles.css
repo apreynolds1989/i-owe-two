@@ -116,14 +116,12 @@ input {
 .brand {
   display: flex;
   align-items: center;
-  gap: 9px;
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: 0.1px;
 }
 
 .brand img {
-  border-radius: 7px;
+  display: block;
+  height: 30px;
+  width: auto;
 }
 
 .header-actions {
