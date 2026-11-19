@@ -1,6 +1,7 @@
 version: 2
 updates:
-  # One weekly PR for all npm updates, instead of one PR per package.
+  # One weekly PR for all minor and patch npm updates. Majors arrive as separate PRs, so a breaking
+  # upgrade never holds back a security patch (such as an Electron/Chromium fix).
   - package-ecosystem: npm
     directory: /
     schedule:
@@ -8,6 +9,11 @@ updates:
     groups:
       npm:
         patterns: ['*']
+        update-types: [minor, patch]
+    ignore:
+      # Tracks the Node 22 engine in package.json; bump its major together with the engine.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
     open-pull-requests-limit: 5
 
   # Keeps the SHA-pinned actions in .github/workflows current.

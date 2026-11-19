@@ -265,6 +265,8 @@ none(offenders(/child_process|execFile|\bspawn\(|shell\.openPath|shell\.openExte
 none(offenders(/from ['"](\.\.\/main|electron)/, (p) => p.startsWith('src/renderer/')), 'the UI never imports Electron or main-process code');
 none(offenders(/from ['"](?!electron['"]|\.\.\/shared\/)/, (p) => p.startsWith('src/preload/')), 'the preload only imports electron and shared types');
 none(offenders(/exposeInMainWorld\([^)]*ipcRenderer\s*\)/), 'raw ipcRenderer is never exposed');
+const mainSrc = source.find((f) => f.path === 'src/main/main.ts')?.text ?? '';
+expect(/^refuseDangerousSwitches\(\);/m.test(mainSrc), 'main.ts refuses unsafe Chromium switches at startup');
 const html = source.find((f) => f.path === 'src/renderer/index.html')?.text ?? '';
 expect(/connect-src 'none'/.test(html) && /script-src 'self'/.test(html), "index.html CSP blocks network access and foreign scripts");
 const security = source.find((f) => f.path === 'src/main/security.ts')?.text ?? '';

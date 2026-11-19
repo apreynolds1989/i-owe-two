@@ -41,7 +41,7 @@ Then either:
 
 ## First launch: add a read-only token
 
-The app asks for a GitHub **fine-grained personal access token** with **read-only** access. It can't change anything on GitHub with it, and it refuses classic tokens because those can have broad access.
+The app asks for a GitHub **fine-grained personal access token** with **read-only** access. The app itself only ever reads from GitHub, and it refuses classic tokens because those can have broad access. It can't check a fine-grained token's permissions, though, so keep the token read-only as described below: that limits the damage if it's ever stolen.
 
 1. On GitHub, go to **Settings › Developer settings › Personal access tokens › Fine-grained tokens** and choose **Generate new token**. (Direct link: https://github.com/settings/personal-access-tokens)
 2. Name it **ReciPRocity** and pick an expiry. 90 days is a good default.
