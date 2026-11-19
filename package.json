@@ -20,17 +20,17 @@
     "screenshots": "tsx scripts/screenshots.ts"
   },
   "devDependencies": {
-    "@types/node": "22.20.5",
+    "@types/node": "26.6.6",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
-    "@vitejs/plugin-react": "6.1.2",
-    "electron": "45.2.2",
+    "@vitejs/plugin-react": "6.3.0",
+    "electron": "45.3.3",
     "electron-builder": "26.18.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "tsx": "4.23.15",
-    "typescript": "5.9.3",
-    "vite": "8.3.5"
+    "typescript": "7.0.2",
+    "vite": "8.3.8"
   },
   "overrides": {
     "app-builder-lib": {
