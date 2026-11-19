@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# The token can only read the repo, so a pull request's code can't push, comment or change settings.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # The checks run under plain Node and never start Electron, so skip its ~100 MB binary download.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      # Actions are pinned to full commit SHAs, so a moved tag can't change what runs. Dependabot keeps them current.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run check
+      - run: npm run audit
