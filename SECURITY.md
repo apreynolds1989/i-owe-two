@@ -4,7 +4,8 @@ ReciPRocity is designed so that the worst realistic outcome of anything going wr
 
 ## Your GitHub token
 
-- **Read-only by design.** The app asks for a fine-grained token with *Pull requests: Read-only*, and refuses classic tokens (`ghp_…`), which can carry broad scopes.
+- **Read-only by design.** The app only ever sends read-only queries (see below). It asks for a fine-grained token with *Pull requests: Read-only*, and refuses classic tokens (`ghp_…`), which can carry broad scopes.
+  - GitHub doesn't let an app check a fine-grained token's permissions, so a token with write access would still be accepted. Give it read-only access: that's what limits the damage if the token is ever stolen.
 - **Encrypted at rest.** The token is encrypted by your operating system before it's written to disk: Windows DPAPI, or the macOS Keychain. It's stored in `token.bin` in the app's data folder.
   - If your OS can't encrypt it, it isn't written to disk at all; it's kept in memory until you quit.
 - **Never in the window.** The token goes in once, from the paste box (which is cleared immediately), and stays in the main process after that. The UI never receives it back.
@@ -13,6 +14,7 @@ ReciPRocity is designed so that the worst realistic outcome of anything going wr
   - Anything token-shaped is scrubbed from every error message and log line.
 - **Proper certificate checks.** Requests go through Electron's Chromium network stack, which checks GitHub's certificate against your operating system's certificate store. They use a separate in-memory session that can only reach `api.github.com`.
   - Node's `NODE_TLS_REJECT_UNAUTHORIZED=0` and `NODE_EXTRA_CA_CERTS`, which some machines set globally, can't switch certificate checking off or add certificates for these requests. The app removes them at startup anyway.
+  - The app refuses to start if it's launched with Chromium switches that could weaken this or expose the token: `--ignore-certificate-errors`, `--host-resolver-rules`, `--host-rules`, `--log-net-log` and remote debugging. A system proxy (`--proxy-server`) is still allowed; certificates are checked through it as normal.
 - **Clipboard.** Copied text can stay in clipboard history (Windows: Win + V, including cloud clipboard if you use it). After saving the token you can delete it from there.
 - **Removable.** Use **Change token… › Remove the saved token** in the app, or delete the token on GitHub at any time.
 
@@ -87,6 +89,6 @@ The UI is built with Electron and follows Electron's [security checklist](https:
 
 ## Reporting a problem
 
-If you find a security issue or a bug, please open an issue on this repository. For a vulnerability that could put users at risk if disclosed before a fix, please use GitHub's private vulnerability reporting instead (**Security** tab › **Report a vulnerability**).
+Please report security vulnerabilities privately, using GitHub's private vulnerability reporting (**Security** tab › [**Report a vulnerability**](https://github.com/apreynolds1989/reciprocity/security/advisories/new)). Don't open a public issue for them. Bugs that don't put users at risk can go in a normal issue.
 
 This project is maintained on a voluntary, best-effort basis. The maintainer has no obligation to respond to issues, accept contributions, provide fixes or keep the project maintained, and may stop doing so at any time. It is provided as-is, as set out in the [LICENSE](LICENSE).

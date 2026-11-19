@@ -41,6 +41,35 @@ const MIME: Record<string, string> = {
   '.json': 'application/json',
 };
 
+/**
+ * Chromium switches that would undo the transport guarantees if someone launched the app with them
+ * (e.g. by editing its login item). Fuses only cover Node's flags, not these:
+ * - certificate and DNS overrides could send the token to a forged api.github.com
+ * - a net log in "Everything" mode writes the Authorization header to disk
+ * - remote debugging opens a DevTools protocol port
+ * proxy-server is deliberately absent: corporate networks use it legitimately, and TLS still applies.
+ */
+const DANGEROUS_SWITCHES = [
+  'ignore-certificate-errors',
+  'ignore-certificate-errors-spki-list',
+  'host-resolver-rules',
+  'host-rules',
+  'log-net-log',
+  'remote-debugging-port',
+  'remote-debugging-pipe',
+  'remote-allow-origins',
+];
+
+/** Call first thing, before app ready: quits if any dangerous Chromium switch was passed. */
+export function refuseDangerousSwitches(): void {
+  const found = DANGEROUS_SWITCHES.filter((s) => app.commandLine.hasSwitch(s));
+  if (found.length) {
+    console.error(`[reciprocity] Refusing to start with unsafe command-line switches: ${found.map((s) => `--${s}`).join(', ')}`);
+    // process.exit is synchronous, so nothing after this call in main.ts (lock, whenReady) gets to run.
+    process.exit(1);
+  }
+}
+
 /** Call before app ready. */
 export function registerAppScheme(): void {
   protocol.registerSchemesAsPrivileged([

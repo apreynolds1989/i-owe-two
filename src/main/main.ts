@@ -12,7 +12,9 @@ import { CancelledError, GitHubError } from './github';
 import { getOwnerType, getSprintMetrics, getViewerLogin } from './metrics';
 import { createPanel, createTray, loadIcon, placeNearTray, visibleBounds } from './panel';
 import { loadPrefs, savePrefs, type Prefs } from './prefs';
-import { fromOurPage, hardenSession, hardenWebContents, openExternalSafely, registerAppScheme, serveRenderer } from './security';
+import {
+  fromOurPage, hardenSession, hardenWebContents, openExternalSafely, refuseDangerousSwitches, registerAppScheme, serveRenderer,
+} from './security';
 import { canPersist, clearToken, initToken, loadToken, saveToken } from './token';
 import { installTransport } from './transport';
 
@@ -24,6 +26,8 @@ const REFRESH_COOLDOWN_MS = 30_000;
 const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 // ---------- before the app is ready ----------
+
+refuseDangerousSwitches(); // e.g. --ignore-certificate-errors, --remote-debugging-port
 
 // Belt and braces: GitHub calls go through Chromium (transport.ts), which ignores these, but make sure
 // nothing in this process can be told to skip certificate checks or trust extra certificates.
