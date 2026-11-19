@@ -77,7 +77,7 @@ Installing a new version over the old one keeps your settings and token. Please 
 
 ## Removing it
 
-- **Installed app:** uninstall it from Windows Settings › Apps, or drag it out of Applications on Mac. The Windows uninstaller also deletes the app's saved data, including the encrypted token.
+- **Installed app:** uninstall it from Windows Settings › Apps, or drag it out of Applications on Mac. The Windows uninstaller also deletes the app's saved data (including the encrypted token) and the installer copy it keeps in `%LOCALAPPDATA%\sprint-widget-updater`.
 - **Token:** to switch off its access completely, delete it on GitHub at https://github.com/settings/personal-access-tokens. In the app, **Change token… › Remove the saved token** deletes it from your computer.
 
 ## Safety
@@ -109,3 +109,4 @@ Layout:
 - `src/preload`: the bridge to the UI.
 - `src/renderer`: the React UI.
 - `src/shared`: types and validation used by both sides.
+- `build/installer.nsh`: Windows installer hooks. electron-builder loads this file automatically.
