@@ -1,0 +1,90 @@
+# Security
+
+Sprint Widget is designed so that the worst realistic outcome of anything going wrong is "someone could read pull-request titles and reviews". It should never be "someone could change code, run commands on my machine, or act as me on GitHub". This page explains how, so you can check before you run it.
+
+## Your GitHub token
+
+- **Read-only by design.** The app asks for a fine-grained token with *Pull requests: Read-only*, and refuses classic tokens (`ghp_…`), which can carry broad scopes.
+- **Encrypted at rest.** The token is encrypted by your operating system before it's written to disk: Windows DPAPI, or the macOS Keychain. It's stored in `token.bin` in the app's data folder.
+  - If your OS can't encrypt it, it isn't written to disk at all; it's kept in memory until you quit.
+- **Never in the window.** The token goes in once, from the paste box (which is cleared immediately), and stays in the main process after that. The UI never receives it back.
+- **One destination.** The token is only sent in the `Authorization` header to `https://api.github.com/graphql`, a fixed address.
+  - Redirects are refused, so it can't be forwarded anywhere else.
+  - Anything token-shaped is scrubbed from every error message and log line.
+- **Proper certificate checks.** Requests go through Electron's Chromium network stack, which checks GitHub's certificate against your operating system's certificate store. They use a separate in-memory session that can only reach `api.github.com`.
+  - Node's `NODE_TLS_REJECT_UNAUTHORIZED=0` and `NODE_EXTRA_CA_CERTS`, which some machines set globally, can't switch certificate checking off or add certificates for these requests. The app removes them at startup anyway.
+- **Clipboard.** Copied text can stay in clipboard history (Windows: Win + V, including cloud clipboard if you use it). After saving the token you can delete it from there.
+- **Removable.** Use **Change token… › Remove the saved token** in the app, or delete the token on GitHub at any time.
+
+## Read-only to GitHub
+
+- **No mutations.** The app contains a fixed list of three GraphQL *queries* and nothing else. The request function refuses any document that isn't on that list, or that contains `mutation` or `subscription`. `npm run check` tests this.
+- **Nothing you type can change what's searched.**
+  - Usernames and organization names must match GitHub's own format (letters, digits, single hyphens), so they can't add qualifiers like `repo:someone/private`.
+  - Dates must be strict `YYYY-MM-DD`.
+  - Labels are only compared inside the app and never put into a query.
+- **Gentle on your account.**
+  - Manual refresh is limited to once per 30 seconds, and a refresh that's already running is reused.
+  - New settings or a new token trigger a refresh at most every 5 seconds.
+  - Requests are spaced out, there's no automatic refresh, and paging stops at GitHub's 1,000-result cap.
+  - If GitHub ever reports a rate limit, the app sends nothing at all until GitHub's reset time, and waits at least a minute.
+  - Changing settings or removing the token cancels any request still running for the old ones.
+
+## The app on your computer
+
+The UI is built with Electron and follows Electron's [security checklist](https://www.electronjs.org/docs/latest/tutorial/security):
+
+- **Sandboxed UI.** The window runs sandboxed, with context isolation and no Node.js. It can't touch your files or run programs.
+- **Its own files only.** The UI is served from a private `app://` address, not from the file system, and only from the app's own UI folder. Attempts to reach other files, including encoded `../` tricks, are refused.
+- **A strict Content Security Policy**, sent as a response header and as a `<meta>` tag:
+  - scripts only from the app itself
+  - no inline scripts and no `eval`
+  - **no network access at all** from the window
+  - all GitHub calls are made by the main process
+- **Defence in depth:**
+  - every request the window makes to anything other than its own files is cancelled
+  - every permission request (camera, microphone, notifications, location…) is denied
+  - embedded web views are blocked
+  - navigating away from the app is blocked
+- **Links.** Only two kinds of page can be opened, in your default browser: pull-request pages on `https://github.com`, and GitHub's token settings page.
+  - The address is parsed and opened in its normalized form, so lookalikes such as `github.com.evil.example` are refused.
+  - So are other GitHub pages, such as app-authorization pages.
+- **Untrusted text.** PR titles and names from GitHub are displayed as text only, never as HTML.
+- **Checked messages.** Every message from the window to the main process is checked: it must come from the app's own page, and its contents are validated before anything happens.
+- **Electron fuses** in the installed app switch off features malware could use to hijack the program:
+  - running as plain Node.js
+  - `NODE_OPTIONS`
+  - debugger flags
+  - loading code from outside the app archive
+
+  The fuses also enable integrity checks on the archive. DevTools and the default application menu (with shortcuts such as reload) are disabled in the installed app.
+- **Running from the repo (`npm start`)** uses the stock Electron binary, so there are no fuses. The start script strips `NODE_OPTIONS`, `ELECTRON_RUN_AS_NODE` and the TLS overrides before launching, so an IDE terminal can't attach a debugger to the process holding the token. If you're not a developer, use the installed app.
+- **Nothing else running.**
+  - Writes only `prefs.json` (your last inputs and theme) and `token.bin` to its own data folder.
+  - Runs no shell commands.
+  - Has no auto-update, telemetry, analytics or crash reporting.
+  - Talks to no server except `api.github.com`.
+  - Starts at login only if you switch that on.
+  - Installs per-user, with no admin rights needed, and uninstalls cleanly.
+
+## Dependencies
+
+- **Small.** The shipped app contains only its own compiled files. React is bundled in, and there's no `node_modules` folder inside the app.
+- **Pinned.** Every development dependency is pinned to an exact version, and `package-lock.json` is committed. Install with `npm ci`, which installs exactly those versions and verifies their integrity hashes.
+- **Patched.** `npm run audit` must report no moderate-or-higher issues. One build-time dependency of the packager (`minimatch`) is overridden to a patched version for that reason.
+
+## Remaining risks (stated plainly)
+
+- **Malware already running as you.** OS encryption protects the token from other users and from a stolen disk. It can't protect it from malicious software already running under your own account.
+  - Because the token is read-only, the most that software could do with it is read pull requests.
+  - The same software could also modify a per-user install, because the installer isn't code-signed. The archive integrity check only fully protects a signed app.
+- **macOS builds aren't notarized.** You build the app on your own Mac, so Gatekeeper doesn't block it.
+  - **Speculative:** if you run from the repo on a Mac, the Keychain entry is tied to the generic Electron binary. Another app run the same way might be able to read it without a prompt.
+  - The installed app has its own identity.
+- **Electron and Chromium bugs** can't be ruled out in any app. Loading no remote content, plus the sandbox, CSP and fuses, removes most of the paths an attacker would need. Keep the app updated (`git pull`, then `npm ci` and rebuild).
+- **Build-time install scripts.** `npm ci` runs the install steps of a few well-known packages (Electron's binary download is checksum-verified). They're pinned and integrity-checked, but they do run on your machine at build time.
+- **Organization policy.** An org can require approval for fine-grained tokens, or forbid them. The app shows GitHub's message; it can't work around it.
+
+## Reporting a problem
+
+If you find a security issue, tell the repository owner directly rather than opening a public issue.

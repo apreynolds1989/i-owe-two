@@ -1,0 +1,83 @@
+{
+  "name": "sprint-widget",
+  "productName": "Sprint Widget",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Tray widget showing your PRs authored and reviewed this sprint, your review ratio, and open PRs still needing reviewers",
+  "main": "dist/main.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "tsx scripts/dev.ts",
+    "build": "tsx scripts/dev.ts --build-only",
+    "dist": "tsx scripts/dev.ts --build-only && electron-builder",
+    "check": "tsx scripts/check.ts",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json",
+    "audit": "npm audit --audit-level=moderate",
+    "screenshots": "tsx scripts/screenshots.ts"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "electron": "45.2.2",
+    "electron-builder": "26.18.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vite": "8.3.5"
+  },
+  "overrides": {
+    "app-builder-lib": {
+      "minimatch": "11.0.4"
+    },
+    "@electron/universal": {
+      "minimatch": "11.0.4"
+    }
+  },
+  "build": {
+    "appId": "dev.sprintwidget.app",
+    "productName": "Sprint Widget",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "assets/**",
+      "package.json"
+    ],
+    "asar": true,
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableEmbeddedAsarIntegrityValidation": true,
+      "onlyLoadAppFromAsar": true,
+      "grantFileProtocolExtraPrivileges": false,
+      "resetAdHocDarwinSignature": true
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": true
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "assets/icon.png",
+      "category": "public.app-category.developer-tools",
+      "identity": "-",
+      "extendInfo": {
+        "LSUIElement": true
+      }
+    }
+  }
+}
