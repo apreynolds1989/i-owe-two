@@ -48,6 +48,16 @@ export interface PrListView {
   labels: string[];
 }
 
+/**
+ * Reviews traded with one person in the dates on screen. `gave`: their PRs you reviewed in these dates.
+ * `got`: your PRs opened in these dates that they reviewed (see giveAndTake in src/main/rules.ts).
+ */
+export interface Partner {
+  login: string;
+  gave: number;
+  got: number;
+}
+
 export interface Metric {
   count: number;
   prs: PrSummary[];
@@ -73,6 +83,10 @@ export interface SprintMetrics {
    * reviewed with comments or changes requested and not approved since (section 'involved').
    */
   waitingOnYou: Metric;
+  /** This person's open, ready PRs with fewer than 2 reviewers, longest-waiting first. Not limited to the dates. */
+  yourPrsWaiting: Metric;
+  /** Everyone reviews were traded with in these dates, most traded first. Never saved unless opted in. */
+  partners: Partner[];
 }
 
 export type RefreshResult = { ok: true; metrics: SprintMetrics } | { ok: false; error: string };
@@ -111,6 +125,10 @@ export interface AppState {
   /** Epoch ms when a manual refresh is allowed again (30 s cooldown). */
   refreshAvailableAt: number;
   prView: PrListView;
+  /** Opt-in: History also keeps the top teammates' logins per period (only when tracking yourself). */
+  rememberTeammates: boolean;
+  /** "from|to" of the last period whose recap was dismissed. */
+  recapSeen: string | null;
 }
 
 export interface StartInput {
@@ -141,6 +159,12 @@ export interface SprintBridge {
   setPinned(pinned: boolean): void;
   setOpenAtLogin(open: boolean): void;
   setPrView(view: PrListView): void;
+  /** Copies "Your PRs waiting" (title and link per line) to the clipboard. The main process builds the text. */
+  copyYourPrs(): Promise<ActionResult>;
+  /** Asks for confirmation in a native dialog; turning it off deletes every stored teammate login. */
+  setRememberTeammates(on: boolean): Promise<void>;
+  /** Marks a period's recap ("from|to") as seen, so it stops showing on its own. */
+  setRecapSeen(key: string): void;
   openExternal(url: string): void;
   hide(): void;
   quit(): void;
@@ -167,6 +191,9 @@ export const IPC = {
   setPinned: 'panel:pin',
   setOpenAtLogin: 'app:open-at-login',
   setPrView: 'prview:set',
+  copyYourPrs: 'prs:copy-yours',
+  setRememberTeammates: 'history:remember-teammates',
+  setRecapSeen: 'recap:seen',
   openExternal: 'link:open',
   hide: 'panel:hide',
   quit: 'app:quit',

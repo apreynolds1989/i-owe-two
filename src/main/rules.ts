@@ -2,7 +2,7 @@
 // scripts/check.ts can test them.
 import type { SprintWindow } from '../shared/args';
 import { shiftDay } from '../shared/range';
-import type { MyReview } from '../shared/types';
+import type { MyReview, Partner } from '../shared/types';
 import { isValidLogin } from '../shared/validate';
 import { actorIsBot, actorLogin, type Actor } from './github';
 
@@ -89,16 +89,68 @@ export const hasIgnoredLabel = (labels: string[], ignore: string[]) => labels.so
 
 export const REVIEWERS_NEEDED = 2;
 
+/**
+ * This person's own open PRs that still need reviewers: fewer than REVIEWERS_NEEDED distinct humans
+ * have reviewed, and no ignored label (the same "doesn't need reviewers" meaning as for Need reviewers).
+ */
+export function needingReviewers<T extends { author: Actor | null; labels: { nodes: Array<{ name: string }> }; reviews: { nodes: ReviewNode[] } }>(
+  prs: T[],
+  ignoreLabels: string[],
+): T[] {
+  return prs.filter(
+    (pr) =>
+      !hasIgnoredLabel(pr.labels.nodes.map((l) => l.name), ignoreLabels) &&
+      humanReviewers(actorLogin(pr.author), pr.reviews.nodes).length < REVIEWERS_NEEDED,
+  );
+}
+
+/**
+ * Reviews traded with each person, from the two lists the ratio is built from:
+ * - gave: PRs by them that `login` reviewed in the dates (the Reviewed list, by author);
+ * - got: `login`'s PRs opened in the dates (the Authored list) that they reviewed, whenever they did.
+ * That mirrors the ratio itself (authored by opening date, reviewed by review date), so it needs no
+ * extra searches. Bots, deleted accounts ("ghost") and `login` itself are left out. Each PR counts once
+ * per person. Most traded first, then by login.
+ */
+export function giveAndTake(
+  login: string,
+  reviewed: Array<{ author: Actor | null }>,
+  authored: Array<{ reviews: { nodes: ReviewNode[] } }>,
+): Partner[] {
+  const me = login.toLowerCase();
+  // Keyed by lower-cased login; the first spelling seen is the one shown.
+  const tally = new Map<string, Partner>();
+  const add = (who: string, field: 'gave' | 'got') => {
+    const key = who.toLowerCase();
+    const entry = tally.get(key) ?? { login: who, gave: 0, got: 0 };
+    tally.set(key, { ...entry, [field]: entry[field] + 1 });
+  };
+  for (const pr of reviewed) {
+    if (!pr.author || actorIsBot(pr.author) || pr.author.login.toLowerCase() === me) continue;
+    add(pr.author.login, 'gave');
+  }
+  for (const pr of authored) {
+    // humanReviewers already skips bots, unsent reviews and the author (`login`), but returns lower-cased
+    // logins and "ghost" for deleted accounts, which have no one to credit.
+    const spelled = new Map(pr.reviews.nodes.filter((r) => r.author).map((r) => [r.author!.login.toLowerCase(), r.author!.login]));
+    for (const who of humanReviewers(login, pr.reviews.nodes)) {
+      if (who !== 'ghost') add(spelled.get(who) ?? who, 'got');
+    }
+  }
+  return [...tally.values()].sort((a, b) => b.gave + b.got - (a.gave + a.got) || a.login.localeCompare(b.login));
+}
+
 export interface SearchQueries {
   authored: string;
   reviewed: string;
   open: string;
   waiting: string;
   involved: string;
+  mine: string;
 }
 
 /**
- * The five search strings. Every piece is validated first: owner and login can only contain
+ * The six search strings. Every piece is validated first: owner and login can only contain
  * letters, digits and hyphens, and dates are strict YYYY-MM-DD, so nothing typed into the app can
  * add qualifiers or widen what is searched. Throws on anything invalid (the UI validates earlier).
  */
@@ -116,5 +168,7 @@ export function buildSearchQueries(ownerType: 'User' | 'Organization', owner: st
     waiting: `${scope} is:pr is:open draft:false review-requested:${login}`,
     // Open PRs this person has reviewed (any state); approved ones are dropped afterwards (splitWaiting).
     involved: `${scope} is:pr is:open draft:false reviewed-by:${login} -author:${login}`,
+    // This person's own open, ready PRs; those that still need reviewers are picked out afterwards (needingReviewers).
+    mine: `${scope} is:pr is:open draft:false author:${login}`,
   };
 }

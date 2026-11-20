@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import { periodKey } from '../shared/history';
 import { RANGE_LABELS, sameWindow } from '../shared/range';
+import { pendingRecap, periodRecap } from '../shared/recap';
 import { useClickOutside } from './hooks';
 import type { AppState, SprintMetrics } from '../shared/types';
 import titleDark from '../../assets/title-dark.png';
@@ -7,19 +9,21 @@ import titleLight from '../../assets/title-light.png';
 import { shortRange } from './dates';
 import { HistoryCard } from './HistoryCard';
 import {
-  CloseIcon, MonitorIcon, MoonIcon, MoreIcon, PencilIcon, PinIcon, PullRequestIcon, RefreshIcon, ReviewersIcon,
+  CloseIcon, MonitorIcon, MoonIcon, MoreIcon, OutboxIcon, PencilIcon, PinIcon, PullRequestIcon, RefreshIcon, ReviewersIcon,
   ReviewIcon, SunIcon, WaitingIcon,
 } from './icons';
 import { MetricCard } from './MetricCard';
 import { NeedsReviewersList } from './NeedsReviewersList';
 import { waitingNote, WaitingList } from './WaitingList';
 import { RatioCard } from './RatioCard';
+import { RecapCard } from './RecapCard';
 import { StartForm } from './StartForm';
 import { NEXT_THEME, THEME_LABEL } from './theme';
 import { TokenForm } from './TokenForm';
 import { ViewingBar } from './ViewingBar';
+import { YourPrsList } from './YourPrsList';
 
-type MetricKey = 'authored' | 'reviewed' | 'waitingOnYou' | 'needsReviewers';
+type MetricKey = 'authored' | 'reviewed' | 'waitingOnYou' | 'yourPrsWaiting' | 'needsReviewers';
 
 const CARDS = [
   { key: 'authored', label: 'Authored', icon: <PullRequestIcon />, hint: 'PRs opened in these dates' },
@@ -29,6 +33,12 @@ const CARDS = [
     label: 'Waiting on you',
     icon: <WaitingIcon />,
     hint: 'Open, ready PRs on your plate right now. Requested: your review (or your team’s) is requested and pending. Involved: you commented or requested changes and haven’t approved since.',
+  },
+  {
+    key: 'yourPrsWaiting',
+    label: 'Your PRs waiting',
+    icon: <OutboxIcon />,
+    hint: 'Your open, ready PRs with fewer than 2 reviewers (right now, whatever the dates)',
   },
   {
     key: 'needsReviewers',
@@ -93,6 +103,8 @@ export function App() {
   const historyAction = (action: () => Promise<{ ok: true } | { ok: false; error: string }>) => () =>
     void action().then((r) => setError(r.ok ? null : r.error));
   const canRefresh = state.view === 'metrics' && !loading && cooldown === 0;
+  // The last locked-in period's recap shows by itself until dismissed, but only on your own range.
+  const recapPeriod = state.viewing.kind === 'tracked' ? pendingRecap(state.history.active, state.trackedWindow, state.recapSeen) : null;
   const ThemeIcon = state.theme === 'light' ? SunIcon : state.theme === 'dark' ? MoonIcon : MonitorIcon;
 
   return (
@@ -158,6 +170,16 @@ export function App() {
                 <button role="menuitem" onClick={() => window.sprint.showView('token')}>
                   Change token…
                 </button>
+                {state.settings && !state.history.readOnly && (
+                  <button
+                    role="menuitemcheckbox"
+                    aria-checked={state.rememberTeammates}
+                    onClick={() => void window.sprint.setRememberTeammates(!state.rememberTeammates)}
+                    title="Also keep the usernames of the people you trade the most reviews with in History (asks first)"
+                  >
+                    {state.rememberTeammates ? '✓ ' : ''}Remember teammates in history
+                  </button>
+                )}
                 {state.canOpenAtLogin && (
                   <button role="menuitemcheckbox" aria-checked={state.openAtLogin} onClick={() => window.sprint.setOpenAtLogin(!state.openAtLogin)}>
                     {state.openAtLogin ? '✓ ' : ''}Start at login
@@ -199,6 +221,15 @@ export function App() {
               </div>
             )}
 
+            {recapPeriod && state.history.active && (
+              <RecapCard
+                recap={periodRecap(state.history.active, recapPeriod)}
+                kind={state.history.active.kind}
+                title={`${RANGE_LABELS[state.history.active.kind]} recap`}
+                onDismiss={() => window.sprint.setRecapSeen(periodKey(recapPeriod))}
+              />
+            )}
+
             <RatioCard metrics={current} window={state.window} />
 
             <div className="metric-list">
@@ -209,7 +240,7 @@ export function App() {
                   label={label}
                   hint={hint}
                   metric={current?.[key]}
-                  showReviewers={key === 'needsReviewers' || key === 'waitingOnYou'}
+                  showReviewers={key === 'needsReviewers' || key === 'waitingOnYou' || key === 'yourPrsWaiting'}
                   expanded={open === key}
                   onToggle={() => setOpen(open === key ? null : key)}
                   note={key === 'waitingOnYou' && current ? waitingNote(current.waitingOnYou.prs) : undefined}
@@ -218,6 +249,8 @@ export function App() {
                       <NeedsReviewersList prs={current.needsReviewers.prs} view={state.prView} />
                     ) : key === 'waitingOnYou' ? (
                       <WaitingList prs={current.waitingOnYou.prs} />
+                    ) : key === 'yourPrsWaiting' ? (
+                      <YourPrsList prs={current.yourPrsWaiting.prs} />
                     ) : undefined
                   }
                 />

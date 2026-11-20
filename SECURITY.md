@@ -64,13 +64,33 @@ The UI is built with Electron and follows Electron's [security checklist](https:
   The fuses also enable integrity checks on the archive. DevTools and the default application menu (with shortcuts such as reload) are disabled in the installed app.
 - **Running from the repo (`npm start`)** uses the stock Electron binary, so there are no fuses. The start script strips `NODE_OPTIONS`, `ELECTRON_RUN_AS_NODE` and the TLS overrides before launching, so an IDE terminal can't attach a debugger to the process holding the token. If you're not a developer, use the installed app.
 - **Nothing else running.**
-  - Writes only `prefs.json` (your settings, theme and list view), `token.bin` and `history.json` to its own data folder. History holds counts only (dates, PRs authored and reviewed), never PR titles or links. All three are deleted on uninstall.
-  - **Export history…** writes a CSV only where you choose in the save dialog. The dialog and the file write happen in the main process; the window never touches your files.
+  - Writes only `prefs.json` (your settings, theme, list view and choices such as dismissed recaps), `token.bin` and `history.json` to its own data folder. All three are deleted on uninstall.
+  - History holds counts (dates, PRs authored and reviewed, and how many people you reviewed for and who reviewed yours), never PR titles or links. Other people's usernames are only stored if you switch on **Remember teammates in history**; see [Teammates in history](#teammates-in-history).
+  - **Export history…** writes a CSV only where you choose in the save dialog. The dialog and the file write happen in the main process; the window never touches your files. It never includes teammates' usernames.
+  - **Copy** (on Your PRs waiting) writes to the clipboard only when you click it. The main process builds the text itself from the numbers it fetched: the window can't choose what goes on the clipboard. Only pull-request links on `github.com` are included, and titles are flattened to one line with control and text-direction characters removed. The app never reads the clipboard.
   - Runs no shell commands.
   - Has no auto-update, telemetry, analytics or crash reporting.
   - Talks to no server except `api.github.com`.
   - Starts at login only if you switch that on.
   - Installs per-user, with no admin rights needed, and uninstalls cleanly.
+
+## Teammates in history
+
+**Remember teammates in history** (in the ⋯ and tray menus) is **off by default**. Switching it on is your choice, and you're responsible for it.
+
+- **What's stored:** for each period, the GitHub usernames of up to 5 people you traded the most reviews with, and the two counts for each. That's on top of the counts History always keeps.
+- **Where:** in `history.json` on your computer only. Like the rest of History, it's plain JSON in the app's data folder (not encrypted), readable by anything running as you.
+- **Guardrails:**
+  - It's only recorded while the tracked GitHub user is the token's owner, so the app can't quietly build a record about someone else.
+  - It's never included in **Export history**.
+  - Switching it off deletes every stored username, including in archived history.
+  - Turning it on and off both ask first.
+  - Downgrading to a version before 0.4.0 drops the stored usernames the next time it saves History.
+- **Why it's off by default:** it's a record about other people, who haven't opted in. Over time it shows who reviews whose work. Before switching it on, check that it fits your team's expectations and your organization's policies, including any rules on keeping data about colleagues.
+
+The Give & take list itself is worked out fresh on every refresh and never saved unless this option is on.
+
+The maintainer accepts no liability for how this option is used, or for any consequence of storing or sharing this information. The software is provided "as is", as set out in the [LICENSE](LICENSE) and the README's [Disclaimer](README.md#disclaimer).
 
 ## Dependencies
 

@@ -9,7 +9,7 @@ import { GitHubError, graphql, QUERIES } from '../../src/main/github';
 import { hardenSession, hardenWebContents, INDEX_URL, registerAppScheme, serveRenderer } from '../../src/main/security';
 import { installTransport } from '../../src/main/transport';
 import type { Series } from '../../src/shared/history';
-import type { AppState, Metric, PrListView, PrSummary, SprintMetrics, SprintSettings } from '../../src/shared/types';
+import type { AppState, Metric, Partner, PrListView, PrSummary, SprintMetrics, SprintSettings } from '../../src/shared/types';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
@@ -20,9 +20,22 @@ const window = { from: '2026-11-16', to: '2026-11-22' };
 const period = (from: string, to: string, authored: number, reviewed: number, final = true) => ({
   from, to, authored, reviewed, final, updatedAt: '2026-11-19T14:42:00Z',
 });
+const partners: Partner[] = [
+  { login: 'bob', gave: 4, got: 2 },
+  { login: 'carol', gave: 3, got: 1 },
+  { login: 'dave', gave: 1, got: 3 },
+  { login: 'erin', gave: 2, got: 0 },
+  { login: 'frank', gave: 0, got: 1 },
+  { login: 'grace', gave: 1, got: 0 },
+];
 const active: Series = {
   owner: 'octo-org', login: 'alice', kind: 'week', start: '2026-11-02', startedAt: '2026-11-02T09:00:00Z', archivedAt: null,
-  periods: [period('2026-11-02', '2026-11-08', 4, 7), period('2026-11-09', '2026-11-15', 5, 11), period('2026-11-16', '2026-11-22', 5, 12, false)],
+  periods: [
+    { ...period('2026-11-02', '2026-11-08', 4, 9), reviewedFor: 4, reviewedBy: 3 },
+    // Remembered teammates (opt-in), so its recap names one.
+    { ...period('2026-11-09', '2026-11-15', 5, 11), reviewedFor: 5, reviewedBy: 4, partners: partners.slice(0, 5) },
+    period('2026-11-16', '2026-11-22', 5, 12, false),
+  ],
 };
 const baseState: AppState = {
   view: 'metrics',
@@ -40,6 +53,9 @@ const baseState: AppState = {
   canOpenAtLogin: true,
   refreshAvailableAt: 0,
   prView: { groupByRepo: false, sort: 'oldest', labels: [] },
+  rememberTeammates: false,
+  // Already dismissed, so the recap only shows in its own screenshot.
+  recapSeen: '2026-11-09|2026-11-15',
 };
 const pr = (n: number, title: string, repo = 'octo-org/web-app', extra: Partial<PrSummary> = {}): PrSummary => ({
   repo,
@@ -66,7 +82,13 @@ const metrics = (authored: number, reviewed: number): SprintMetrics => ({
   reviewed: metric(reviewed),
   needsReviewers: metric(5, needsReviewers),
   waitingOnYou: metric(5, waitingOnYou),
+  yourPrsWaiting: metric(2, yourPrsWaiting),
+  partners,
 });
+const yourPrsWaiting: PrSummary[] = [
+  pr(86, 'Add an export button to the audit log', 'octo-org/web-app', { author: 'alice', createdAt: '2026-11-11T10:00:00Z', reviewerCount: 0 }),
+  pr(103, 'Retry failed webhook deliveries', 'octo-org/api', { author: 'alice', createdAt: '2026-11-17T10:00:00Z', reviewerCount: 1 }),
+];
 // One of each kind: a fresh request, a re-request after approving, and the three Involved states.
 const waitingOnYou: PrSummary[] = [
   pr(97, 'Retry webhooks with backoff', 'octo-org/api', { reviewerCount: 1, author: 'erin', createdAt: '2026-11-13T10:00:00Z', section: 'requested' }),
@@ -98,8 +120,12 @@ interface Scenario {
   name: string;
   state: AppState;
   metrics?: SprintMetrics;
-  /** Expand a card's PR list: the Need reviewers card, or Waiting on you (scrolled into view). */
-  expand?: 'needsReviewers' | 'waitingOnYou';
+  /** Expand a card's PR list (cards other than Need reviewers are scrolled into view). */
+  expand?: 'needsReviewers' | 'waitingOnYou' | 'yourPrsWaiting';
+  /** Open Give & take on the ratio card. */
+  ratio?: boolean;
+  /** Open the recap of the newest ended period in History. */
+  recap?: boolean;
   /** Open the History card (and its archived list) and scroll down to it. */
   history?: boolean;
 }
@@ -121,6 +147,11 @@ const scenarios: Scenario[] = [
   },
   { name: 'metrics-expanded', state: baseState, metrics: metrics(5, 12), expand: 'needsReviewers' },
   { name: 'metrics-waiting', state: baseState, metrics: metrics(5, 12), expand: 'waitingOnYou' },
+  { name: 'metrics-your-prs', state: baseState, metrics: metrics(5, 12), expand: 'yourPrsWaiting' },
+  { name: 'metrics-give-take', state: baseState, metrics: metrics(5, 12), ratio: true },
+  { name: 'metrics-give-take-super', state: baseState, metrics: metrics(8, 33), ratio: true },
+  { name: 'metrics-recap', state: { ...baseState, recapSeen: null }, metrics: metrics(5, 12) },
+  { name: 'metrics-history-recap', state: baseState, metrics: metrics(5, 12), history: true, recap: true },
   {
     name: 'metrics-history',
     state: { ...baseState, history: { active, archived: [archivedSeries], readOnly: false } },
@@ -155,11 +186,12 @@ void app.whenReady().then(async () => {
       current = s;
       await win.loadURL(INDEX_URL);
       await new Promise((r) => setTimeout(r, 400)); // the fake numbers arrive shortly after load
+      if (s.ratio) await win.webContents.executeJavaScript(`document.querySelector('.ratio-head')?.click()`);
       if (s.expand) {
-        // Card order: Authored, Reviewed, Waiting on you, Need reviewers.
-        const index = s.expand === 'waitingOnYou' ? 2 : 3;
+        // Card order: Authored, Reviewed, Waiting on you, Your PRs waiting, Need reviewers.
+        const index = { waitingOnYou: 2, yourPrsWaiting: 3, needsReviewers: 4 }[s.expand];
         await win.webContents.executeJavaScript(`document.querySelectorAll('.metric-head')[${index}]?.click()`);
-        if (s.expand === 'waitingOnYou') {
+        if (s.expand !== 'needsReviewers') {
           await new Promise((r) => setTimeout(r, 50));
           await win.webContents.executeJavaScript(`document.querySelector('.metric-card.expanded')?.scrollIntoView({ block: 'start' })`);
         }
@@ -167,8 +199,9 @@ void app.whenReady().then(async () => {
       if (s.history) {
         await win.webContents.executeJavaScript(`document.querySelector('.history-card .metric-head')?.click()`);
         await new Promise((r) => setTimeout(r, 100));
+        const open = s.recap ? `document.querySelectorAll('.history-button')[0]?.click()` : `document.querySelector('.archived-toggle')?.click()`;
         await win.webContents.executeJavaScript(
-          `document.querySelector('.archived-toggle')?.click(); setTimeout(() => { const c = document.querySelector('.content'); c.scrollTop = c.scrollHeight; }, 50)`,
+          `${open}; setTimeout(() => { const c = document.querySelector('.content'); c.scrollTop = c.scrollHeight; }, 50)`,
         );
       }
       await new Promise((r) => setTimeout(r, 900)); // let count-up animations finish

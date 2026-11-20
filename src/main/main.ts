@@ -2,15 +2,17 @@
 // The UI (src/renderer) is sandboxed and can only ask for things through the preload bridge; every
 // request is checked here (sender, payload shape, values) before anything happens.
 import {
-  app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, powerMonitor, Tray, type IpcMainEvent, type IpcMainInvokeEvent,
-  type NativeImage,
+  app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, powerMonitor, Tray, type IpcMainEvent,
+  type IpcMainInvokeEvent, type NativeImage,
 } from 'electron';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { SprintWindow } from '../shared/args';
 import {
-  EMPTY_HISTORY, historyView, needsChoice, pendingFinalize, recordPeriod, switchSeries, type History,
+  EMPTY_HISTORY, forgetPartners, historyView, isPeriodKey, MAX_STORED_PARTNERS, needsChoice, partnerExtras, pendingFinalize,
+  periodKey, recordPeriod, switchSeries, type History,
 } from '../shared/history';
+import { prLinksText } from '../shared/prLinks';
 import { parsePrView } from '../shared/prView';
 import { periodContaining, parseView, sameWindow, TRACKED, validRange, viewWindow, windowDays, type ViewRange } from '../shared/range';
 import { reviewRatio, superMinReviews } from '../shared/ratio';
@@ -70,6 +72,8 @@ const historyReadOnly = loaded.readOnly;
 let viewing: ViewRange = TRACKED;
 /** The latest numbers for the tracked range: the tray always shows these, whatever is being viewed. */
 let lastTracked: SprintMetrics | null = null;
+/** The latest numbers of any kind (tracked or a temporary view): what "Copy" on Your PRs waiting copies. */
+let lastMetrics: SprintMetrics | null = null;
 /** The tracked period last fetched, to notice when it rolls over. */
 let lastTrackedWindow: SprintWindow | null = null;
 /** Ended periods whose final fetch failed this session (other than for a rate limit): not retried until restart. */
@@ -112,6 +116,8 @@ function state(): AppState {
     canOpenAtLogin: app.isPackaged,
     refreshAvailableAt,
     prView: prefs.prView,
+    rememberTeammates: prefs.rememberTeammates,
+    recapSeen: prefs.recapSeen,
   };
 }
 
@@ -130,6 +136,19 @@ function updateHistory(next: History) {
   if (historyReadOnly || next === history) return;
   history = next;
   saveHistory(history);
+}
+
+/**
+ * Teammates' logins are only kept when the person opted in, and only while the tracked person is the
+ * token's owner: the app never builds a record of who someone else trades reviews with.
+ */
+const rememberPartnersFor = (settings: SprintSettings) =>
+  prefs.rememberTeammates && !!viewerLogin && settings.login.toLowerCase() === viewerLogin.toLowerCase();
+
+/** The tracked range's current period, recorded (not final) from numbers just fetched. */
+function recordCurrent(h: History, settings: SprintSettings, m: SprintMetrics): History {
+  const counts = { authored: m.authored.count, reviewed: m.reviewed.count, ...partnerExtras(m.partners, rememberPartnersFor(settings)) };
+  return recordPeriod(h, settings, { ...m.window, ...counts, final: false }, new Date().toISOString());
 }
 
 /** A message that's safe to show: our own GitHub errors are already safe; anything else is redacted. */
@@ -215,11 +234,11 @@ function refresh(force = false): void {
       if (isTracked) await finalizeEndedPeriod(token, settings, tracked, ownerType, ac.signal);
       const metrics = await getSprintMetrics(token, settings, window, ownerType, timezone, ac.signal);
       if (ac.signal.aborted) return;
+      lastMetrics = metrics;
       if (isTracked) {
         lastTracked = metrics;
         updateTray();
-        const counts = { authored: metrics.authored.count, reviewed: metrics.reviewed.count };
-        updateHistory(recordPeriod(history, settings, { ...window, ...counts, final: false }, new Date().toISOString()));
+        updateHistory(recordCurrent(history, settings, metrics));
       }
       send(IPC.result, { ok: true, metrics });
     } catch (err) {
@@ -258,12 +277,13 @@ async function finalizeEndedPeriod(
 ) {
   const ended = pendingFinalize(history, settings, tracked);
   if (!ended || historyReadOnly) return;
-  const key = `${ended.from}|${ended.to}`;
+  const key = periodKey(ended);
   if (finalizeFailed.has(key)) return;
   try {
-    const counts = await getPeriodCounts(token, settings, ended, ownerType, timezone, signal);
+    const { partners, ...counts } = await getPeriodCounts(token, settings, ended, ownerType, timezone, signal);
     if (signal.aborted) return;
-    updateHistory(recordPeriod(history, settings, { from: ended.from, to: ended.to, ...counts, final: true }, new Date().toISOString()));
+    const extras = partnerExtras(partners, rememberPartnersFor(settings));
+    updateHistory(recordPeriod(history, settings, { from: ended.from, to: ended.to, ...counts, ...extras, final: true }, new Date().toISOString()));
     await pause(signal);
   } catch (err) {
     if (signal.aborted || err instanceof CancelledError || (err instanceof GitHubError && err.retryAt)) throw err;
@@ -385,6 +405,13 @@ function rebuildTrayMenu() {
       checked: s.openAtLogin,
       click: (item) => setOpenAtLogin(item.checked),
     },
+    {
+      label: 'Remember teammates in history',
+      type: 'checkbox',
+      checked: prefs.rememberTeammates,
+      // It asks first, in a dialog over the panel.
+      click: (item) => (showPanel(), void setRememberTeammates(item.checked)),
+    },
     { type: 'separator' },
     { label: 'Quit ReciPRocity', click: () => app.quit() },
   ]);
@@ -418,6 +445,38 @@ async function withDialog<T>(fn: () => Promise<T>): Promise<T> {
     dialogOpen = false;
   }
 }
+/**
+ * The opt-in to keep teammates' logins in history. Both ways ask first: switching on explains exactly
+ * what's kept; switching off deletes every stored login (the anonymous counts stay).
+ */
+async function setRememberTeammates(on: boolean) {
+  if (on === prefs.rememberTeammates) return pushState();
+  const me = viewerLogin ? `@${viewerLogin}` : 'you';
+  const { response } = await withDialog(() =>
+    dialog.showMessageBox(win, {
+      type: on ? 'question' : 'warning',
+      buttons: on ? ['Remember teammates', 'Cancel'] : ['Forget teammates', 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+      message: on ? 'Remember teammates in history?' : 'Stop remembering teammates?',
+      detail: on
+        ? `For each period, History will also keep the GitHub usernames of the ${MAX_STORED_PARTNERS} people you traded the most reviews with, and how many, so recaps can name them. ` +
+          `It's only recorded while the GitHub user is ${me}, it's kept only on this computer, and it's never included in Export history. Switching this off deletes every stored username.\n\n` +
+          "This keeps a record about other people. Whether that's appropriate is your choice: check that it fits your team's expectations and your organization's policies."
+        : 'This deletes every stored teammate username from History, including archived periods. The counts stay. It can’t be undone.',
+    }),
+  );
+  if (response === 0) {
+    updatePrefs({ rememberTeammates: on });
+    if (!on) updateHistory(forgetPartners(history));
+    // Fill in the current period straight away from the numbers already fetched.
+    else if (lastTracked && prefs.settings && sameWindow(lastTracked.window, trackedWindow())) {
+      updateHistory(recordCurrent(history, prefs.settings, lastTracked));
+    }
+  }
+  pushState(); // also resets the tray checkbox if this was cancelled
+}
+
 const isView = (v: unknown): v is View => v === 'token' || v === 'start' || v === 'metrics';
 const isTheme = (v: unknown): v is Theme => v === 'system' || v === 'light' || v === 'dark';
 
@@ -455,6 +514,7 @@ function registerIpc() {
     viewerLogin = null;
     ownerTypes.clear();
     lastTracked = null;
+    lastMetrics = null;
     updateTray();
     setView('token');
   });
@@ -489,6 +549,7 @@ function registerIpc() {
     updatePrefs({ settings });
     viewing = TRACKED;
     lastTracked = null;
+    lastMetrics = null;
     updateTray();
     setView('metrics');
     refresh(true);
@@ -503,6 +564,7 @@ function registerIpc() {
     if (v.kind === 'tracked' && lastTracked && sameWindow(lastTracked.window, trackedWindow())) {
       // Back to my range: show the numbers already fetched straight away; refresh only if the cooldown allows.
       controller?.abort(); // a fetch still running for the temporary view is no longer wanted
+      lastMetrics = lastTracked;
       send(IPC.result, { ok: true, metrics: lastTracked });
       refresh();
     } else {
@@ -542,11 +604,8 @@ function registerIpc() {
     );
     if (response !== 0) return;
     let next: History = EMPTY_HISTORY;
-    if (lastTracked && prefs.settings) {
-      // Start the current period again from the numbers on screen.
-      const counts = { authored: lastTracked.authored.count, reviewed: lastTracked.reviewed.count };
-      next = recordPeriod(next, prefs.settings, { ...lastTracked.window, ...counts, final: false }, new Date().toISOString());
-    }
+    // Start the current period again from the numbers on screen.
+    if (lastTracked && prefs.settings) next = recordCurrent(next, prefs.settings, lastTracked);
     updateHistory(next);
     pushState();
   });
@@ -568,6 +627,24 @@ function registerIpc() {
     const prView = parsePrView(v);
     if (prView) {
       updatePrefs({ prView });
+      pushState();
+    }
+  });
+  // No arguments: the text is built here from the numbers this process fetched, never sent by the window.
+  handle(IPC.copyYourPrs, (): ActionResult => {
+    const text = prLinksText(lastMetrics?.yourPrsWaiting.prs ?? []);
+    if (!text) return { ok: false, error: 'There are no PRs to copy.' };
+    clipboard.writeText(text);
+    return { ok: true };
+  });
+  handle(IPC.setRememberTeammates, async (_e, on) => {
+    if (typeof on === 'boolean') await setRememberTeammates(on);
+  });
+  on(IPC.setRecapSeen, (_e, key) => {
+    // Only a period that's actually in the active history.
+    const active = historyView(history, historyReadOnly, prefs.settings).active;
+    if (isPeriodKey(key) && active?.periods.some((p) => periodKey(p) === key)) {
+      updatePrefs({ recapSeen: key });
       pushState();
     }
   });
