@@ -3,8 +3,9 @@
 import { app } from 'electron';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { DEFAULT_PR_VIEW, parsePrView } from '../shared/prView';
 import { validSettings } from '../shared/settings';
-import type { SprintSettings, Theme } from '../shared/types';
+import type { PrListView, SprintSettings, Theme } from '../shared/types';
 
 export interface Bounds {
   x: number;
@@ -18,9 +19,10 @@ export interface Prefs {
   theme: Theme;
   pinned: boolean;
   pinnedBounds: Bounds | null;
+  prView: PrListView;
 }
 
-const DEFAULTS: Prefs = { settings: null, theme: 'system', pinned: false, pinnedBounds: null };
+const DEFAULTS: Prefs = { settings: null, theme: 'system', pinned: false, pinnedBounds: null, prView: DEFAULT_PR_VIEW };
 const file = () => join(app.getPath('userData'), 'prefs.json');
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
@@ -41,6 +43,7 @@ export function loadPrefs(): Prefs {
       theme: raw.theme === 'light' || raw.theme === 'dark' ? raw.theme : 'system',
       pinned: raw.pinned === true,
       pinnedBounds: validBounds(raw.pinnedBounds),
+      prView: parsePrView(raw.prView) ?? DEFAULT_PR_VIEW,
     };
   } catch {
     return { ...DEFAULTS };

@@ -13,6 +13,8 @@ import {
 import { reviewRatio, reviewsToTarget, SUPER_MESSAGES, superMinReviews } from '../src/shared/ratio';
 import { validSettings } from '../src/shared/settings';
 import { DOT_COLORS, paintDot } from '../src/main/dot';
+import { applyPrView, DEFAULT_PR_VIEW, labelOptions, parsePrView } from '../src/shared/prView';
+import type { PrSummary } from '../src/shared/types';
 import { allowedGitHubLink, checkToken, isValidLogin, MAX_LOGIN_LENGTH, parseLabels, redact } from '../src/shared/validate';
 import { assertReadOnlyQuery, ENDPOINT, GitHubError, graphql, QUERIES, setTransport, type Actor } from '../src/main/github';
 import { panelPosition } from '../src/main/placement';
@@ -286,6 +288,48 @@ expect(Array.isArray(labels) && labels.join('|') === 'do not review|wip', 'label
 expect(!Array.isArray(parseLabels('a,'.repeat(11))), 'too many labels are refused');
 expect(!Array.isArray(parseLabels('x'.repeat(51))), 'an over-long label is refused');
 expect(!Array.isArray(parseLabels('bad\u0000label')), 'control characters are refused');
+
+section('Need-reviewers view (sort, group, label filter)');
+const waiting = (repo: string, number: number, createdAt: string, labels: string[]): PrSummary => ({
+  repo, number, title: `#${number}`, url: `https://github.com/${repo}/pull/${number}`, author: 'bob', createdAt, labels,
+});
+const backlog = [
+  waiting('octo-org/web', 3, '2026-11-12T10:00:00Z', ['Frontend']),
+  waiting('octo-org/api', 1, '2026-11-03T10:00:00Z', ['backend']),
+  waiting('octo-org/web', 2, '2026-11-05T10:00:00Z', []),
+  waiting('octo-org/api', 4, '2026-11-18T10:00:00Z', ['backend', 'frontend']),
+];
+const nums = (prs: PrSummary[]) => prs.map((p) => p.number).join(',');
+const flat = applyPrView(backlog, DEFAULT_PR_VIEW);
+expect(flat.groups.length === 1 && flat.groups[0]!.repo === null && nums(flat.groups[0]!.prs) === '1,2,3,4', 'default: one list, oldest first');
+expect(nums(applyPrView(backlog, { ...DEFAULT_PR_VIEW, sort: 'newest' }).groups[0]!.prs) === '4,3,2,1', 'newest first reverses the order');
+expect(nums(backlog) === '3,1,2,4', 'applying a view does not reorder the original list');
+const grouped = applyPrView(backlog, { ...DEFAULT_PR_VIEW, groupByRepo: true });
+expect(
+  grouped.groups.map((g) => g.repo).join('|') === 'octo-org/api|octo-org/web' && nums(grouped.groups[0]!.prs) === '1,4' && nums(grouped.groups[1]!.prs) === '2,3',
+  'grouped: repos alphabetical, each oldest first',
+);
+const fe = applyPrView(backlog, { ...DEFAULT_PR_VIEW, labels: ['frontend'] });
+expect(nums(fe.groups[0]!.prs) === '3,4' && fe.shown === 2, 'label filter matches case-insensitively');
+expect(applyPrView(backlog, { ...DEFAULT_PR_VIEW, labels: ['frontend', 'backend'] }).shown === 3, 'several labels match any of them');
+expect(applyPrView(backlog, { ...DEFAULT_PR_VIEW, labels: ['security'] }).shown === 0, 'a label no PR has shows nothing');
+expect(applyPrView(backlog, { ...DEFAULT_PR_VIEW, groupByRepo: true, labels: ['security'] }).groups.length === 0, 'no empty repo groups');
+expect(labelOptions(backlog, ['security']).join('|') === 'backend|frontend|security', 'label options: lower-cased, de-duplicated, sorted, keep selected');
+const pv = parsePrView({ groupByRepo: true, sort: 'newest', labels: [' Frontend ', 'frontend'] });
+expect(pv?.groupByRepo === true && pv.sort === 'newest' && pv.labels.join('|') === 'frontend', 'a stored view is accepted (labels trimmed, lower-cased, de-duplicated)');
+for (const [bad, why] of [
+  [null, 'not an object'],
+  [{ groupByRepo: 'yes', sort: 'oldest', labels: [] }, 'a non-boolean groupByRepo'],
+  [{ groupByRepo: false, sort: 'random', labels: [] }, 'an unknown sort'],
+  [{ groupByRepo: false, sort: 'oldest', labels: 'frontend' }, 'labels that are not a list'],
+  [{ groupByRepo: false, sort: 'oldest', labels: [1] }, 'a non-string label'],
+  [{ groupByRepo: false, sort: 'oldest', labels: Array.from({ length: 11 }, (_, i) => `l${i}`) }, 'too many labels'],
+  [{ groupByRepo: false, sort: 'oldest', labels: ['x'.repeat(51)] }, 'an over-long label'],
+  [{ groupByRepo: false, sort: 'oldest', labels: ['bad\u0000'] }, 'a control character'],
+  [{ groupByRepo: false, sort: 'oldest', labels: ['a,b'] }, 'a comma inside a label'],
+] as const) {
+  expect(parsePrView(bad) === null, `a stored view with ${why} is refused`);
+}
 
 section('Tokens');
 const fine = `github_pat_${'A1b2'.repeat(10)}`;

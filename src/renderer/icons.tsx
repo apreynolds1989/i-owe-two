@@ -144,3 +144,26 @@ export const CloseIcon = () => (
     <path d="M6 6l12 12M18 6 6 18" />
   </Icon>
 );
+
+/** Group by repo: stacked rows. */
+export const GroupIcon = () => (
+  <Icon size={14}>
+    <rect x="3" y="4" width="18" height="6" rx="1.5" />
+    <rect x="3" y="14" width="18" height="6" rx="1.5" />
+  </Icon>
+);
+
+/** Sort: an arrow pointing the way the dates run (down = oldest first, up = newest first). */
+export const SortIcon = ({ descending }: { descending: boolean }) => (
+  <Icon size={14}>
+    <path d="M4 6h9M4 12h6M4 18h3" />
+    <path d={descending ? 'M18 19V5m-3 3 3-3 3 3' : 'M18 5v14m-3-3 3 3 3-3'} />
+  </Icon>
+);
+
+/** Filter: a funnel. */
+export const FilterIcon = () => (
+  <Icon size={14}>
+    <path d="M4 5h16l-6 7.5V19l-4-2v-4.5L4 5Z" />
+  </Icon>
+);

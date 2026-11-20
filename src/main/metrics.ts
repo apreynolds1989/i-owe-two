@@ -138,7 +138,7 @@ export async function getSprintMetrics(
       .filter((n) => !hasIgnoredLabel(n.labels.nodes.map((l) => l.name), settings.ignoreLabels)),
   )
     .filter(({ reviewers }) => reviewers < REVIEWERS_NEEDED)
-    .map(({ n, reviewers }) => summary(n, { reviewerCount: reviewers }));
+    .map(({ n, reviewers }) => summary(n, { reviewerCount: reviewers, labels: n.labels.nodes.map((l) => l.name) }));
 
   const waitingOnYou = withReviewers(waitingRaw.nodes).map(({ n, reviewers }) => summary(n, { reviewerCount: reviewers }));
 

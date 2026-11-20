@@ -29,6 +29,16 @@ export interface PrSummary {
   createdAt: string;
   /** Distinct human reviewers other than the author. Only set for the open-PR lists. */
   reviewerCount?: number;
+  /** Label names as written on GitHub. Only set for the "Need reviewers" list (it can be filtered). */
+  labels?: string[];
+}
+
+/** How the "Need reviewers" list is shown. Remembered in prefs.json; see src/shared/prView.ts. */
+export interface PrListView {
+  groupByRepo: boolean;
+  sort: 'oldest' | 'newest';
+  /** Lower-cased; a PR is shown if it carries any of them. Empty shows every PR. */
+  labels: string[];
 }
 
 export interface Metric {
@@ -90,6 +100,7 @@ export interface AppState {
   canOpenAtLogin: boolean;
   /** Epoch ms when a manual refresh is allowed again (30 s cooldown). */
   refreshAvailableAt: number;
+  prView: PrListView;
 }
 
 export interface StartInput {
@@ -119,6 +130,7 @@ export interface SprintBridge {
   setTheme(theme: Theme): void;
   setPinned(pinned: boolean): void;
   setOpenAtLogin(open: boolean): void;
+  setPrView(view: PrListView): void;
   openExternal(url: string): void;
   hide(): void;
   quit(): void;
@@ -144,6 +156,7 @@ export const IPC = {
   setTheme: 'theme:set',
   setPinned: 'panel:pin',
   setOpenAtLogin: 'app:open-at-login',
+  setPrView: 'prview:set',
   openExternal: 'link:open',
   hide: 'panel:hide',
   quit: 'app:quit',

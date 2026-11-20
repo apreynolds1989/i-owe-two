@@ -9,7 +9,7 @@ import { GitHubError, graphql, QUERIES } from '../../src/main/github';
 import { hardenSession, hardenWebContents, INDEX_URL, registerAppScheme, serveRenderer } from '../../src/main/security';
 import { installTransport } from '../../src/main/transport';
 import type { Series } from '../../src/shared/history';
-import type { AppState, Metric, SprintMetrics, SprintSettings } from '../../src/shared/types';
+import type { AppState, Metric, PrListView, PrSummary, SprintMetrics, SprintSettings } from '../../src/shared/types';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
@@ -39,8 +39,9 @@ const baseState: AppState = {
   openAtLogin: false,
   canOpenAtLogin: true,
   refreshAvailableAt: 0,
+  prView: { groupByRepo: false, sort: 'oldest', labels: [] },
 };
-const pr = (n: number, title: string, repo = 'octo-org/web-app', extra = {}) => ({
+const pr = (n: number, title: string, repo = 'octo-org/web-app', extra: Partial<PrSummary> = {}): PrSummary => ({
   repo,
   number: n,
   title,
@@ -63,12 +64,19 @@ const metrics = (authored: number, reviewed: number): SprintMetrics => ({
   fetchedAt: '2026-11-19T14:42:00Z',
   authored: metric(authored),
   reviewed: metric(reviewed),
-  needsReviewers: metric(3, [
-    pr(88, 'Migrate the billing worker to the new queue', 'octo-org/api', { reviewerCount: 0, author: 'carol' }),
-    pr(93, 'Dark mode for the dashboard', 'octo-org/web-app', { reviewerCount: 1, author: 'dave' }),
-  ]),
+  needsReviewers: metric(5, needsReviewers),
   waitingOnYou: metric(1, [pr(97, 'Retry webhooks with backoff', 'octo-org/api', { reviewerCount: 1, author: 'erin' })]),
 });
+const waiting = (n: number, title: string, repo: string, createdAt: string, labels: string[], reviewerCount: number, author: string) =>
+  pr(n, title, repo, { createdAt, labels, reviewerCount, author });
+const needsReviewers = [
+  waiting(88, 'Migrate the billing worker to the new queue', 'octo-org/api', '2026-11-03T15:00:00Z', ['backend'], 0, 'carol'),
+  waiting(93, 'Dark mode for the dashboard', 'octo-org/web-app', '2026-11-12T10:00:00Z', ['frontend', 'UI'], 1, 'dave'),
+  waiting(41, 'Bump the release pipeline to Node 22', 'octo-org/infra', '2026-11-14T09:30:00Z', [], 0, 'erin'),
+  waiting(97, 'Paginate the audit log endpoint', 'octo-org/api', '2026-11-17T16:20:00Z', ['backend', 'performance'], 1, 'frank'),
+  waiting(99, 'Keyboard shortcuts for the PR table', 'octo-org/web-app', '2026-11-18T11:05:00Z', ['frontend'], 0, 'grace'),
+];
+const view = (v: Partial<PrListView>) => ({ ...baseState, prView: { ...baseState.prView, ...v } });
 
 interface Scenario {
   name: string;
@@ -101,6 +109,9 @@ const scenarios: Scenario[] = [
     metrics: metrics(5, 12),
     history: true,
   },
+  { name: 'metrics-grouped', state: view({ groupByRepo: true }), metrics: metrics(5, 12), expand: true },
+  { name: 'metrics-filtered', state: view({ groupByRepo: true, sort: 'newest', labels: ['frontend'] }), metrics: metrics(5, 12), expand: true },
+  { name: 'metrics-filter-empty', state: view({ labels: ['security'] }), metrics: metrics(5, 12), expand: true },
 ];
 
 let current: Scenario = scenarios[0]!;

@@ -64,7 +64,7 @@ The UI is built with Electron and follows Electron's [security checklist](https:
   The fuses also enable integrity checks on the archive. DevTools and the default application menu (with shortcuts such as reload) are disabled in the installed app.
 - **Running from the repo (`npm start`)** uses the stock Electron binary, so there are no fuses. The start script strips `NODE_OPTIONS`, `ELECTRON_RUN_AS_NODE` and the TLS overrides before launching, so an IDE terminal can't attach a debugger to the process holding the token. If you're not a developer, use the installed app.
 - **Nothing else running.**
-  - Writes only `prefs.json` (your settings and theme), `token.bin` and `history.json` to its own data folder. History holds counts only (dates, PRs authored and reviewed), never PR titles or links. All three are deleted on uninstall.
+  - Writes only `prefs.json` (your settings, theme and list view), `token.bin` and `history.json` to its own data folder. History holds counts only (dates, PRs authored and reviewed), never PR titles or links. All three are deleted on uninstall.
   - **Export history…** writes a CSV only where you choose in the save dialog. The dialog and the file write happen in the main process; the window never touches your files.
   - Runs no shell commands.
   - Has no auto-update, telemetry, analytics or crash reporting.

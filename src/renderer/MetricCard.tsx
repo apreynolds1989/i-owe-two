@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import type { Metric } from '../shared/types';
+import type { Metric, PrSummary } from '../shared/types';
 import { openedAgo } from './dates';
 import { ChevronIcon } from './icons';
 
@@ -32,6 +32,30 @@ function useCountUp(target: number | undefined): number | undefined {
   return shown;
 }
 
+/**
+ * One PR in a list: repo#number badge and title (opens on GitHub), optionally who opened it and its
+ * reviewer count. `hideRepo` drops the repo from the badge when a group header already names it.
+ */
+export function PrRow({ pr, showReviewers, hideRepo = false }: { pr: PrSummary; showReviewers: boolean; hideRepo?: boolean }) {
+  return (
+    <li>
+      {/* target=_blank is routed by the main process, which only opens https://github.com links. */}
+      <a href={pr.url} target="_blank" rel="noreferrer" title={pr.title}>
+        <span className="pr-badge">
+          {hideRepo ? '' : pr.repo.split('/').pop()}#{pr.number}
+        </span>
+        <span className="pr-title">{pr.title}</span>
+      </a>
+      {showReviewers && (
+        <span className="pr-meta">
+          {/* "opened", not "waiting": a PR that started as a draft wasn't waiting the whole time. */}
+          by {pr.author} · {openedAgo(pr.createdAt)} · {pr.reviewerCount ?? 0} of 2 reviewers
+        </span>
+      )}
+    </li>
+  );
+}
+
 export function MetricCard(props: {
   icon: ReactNode;
   label: string;
@@ -40,8 +64,10 @@ export function MetricCard(props: {
   showReviewers: boolean;
   expanded: boolean;
   onToggle: () => void;
+  /** Replaces the plain PR list when expanded (the "Need reviewers" card brings its own controls). */
+  children?: ReactNode;
 }) {
-  const { icon, label, hint, metric, showReviewers, expanded, onToggle } = props;
+  const { icon, label, hint, metric, showReviewers, expanded, onToggle, children } = props;
   const shown = useCountUp(metric?.count);
   const hasPrs = !!metric && metric.prs.length > 0;
 
@@ -56,27 +82,15 @@ export function MetricCard(props: {
         <span className="metric-count">{shown ?? '–'}</span>
         <span className="metric-chevron">{hasPrs && <ChevronIcon open={expanded} />}</span>
       </button>
-      {expanded && metric && (
-        <ul className="pr-list">
-          {metric.prs.map((pr) => (
-            <li key={pr.url}>
-              {/* target=_blank is routed by the main process, which only opens https://github.com links. */}
-              <a href={pr.url} target="_blank" rel="noreferrer" title={pr.title}>
-                <span className="pr-badge">
-                  {pr.repo.split('/').pop()}#{pr.number}
-                </span>
-                <span className="pr-title">{pr.title}</span>
-              </a>
-              {showReviewers && (
-                <span className="pr-meta">
-                  {/* "opened", not "waiting": a PR that started as a draft wasn't waiting the whole time. */}
-                  by {pr.author} · {openedAgo(pr.createdAt)} · {pr.reviewerCount ?? 0} of 2 reviewers
-                </span>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
+      {expanded &&
+        metric &&
+        (children ?? (
+          <ul className="pr-list">
+            {metric.prs.map((pr) => (
+              <PrRow key={pr.url} pr={pr} showReviewers={showReviewers} />
+            ))}
+          </ul>
+        ))}
     </section>
   );
 }

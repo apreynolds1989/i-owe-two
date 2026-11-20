@@ -19,6 +19,7 @@ const bridge: SprintBridge = {
   setTheme: noop,
   setPinned: noop,
   setOpenAtLogin: noop,
+  setPrView: noop,
   openExternal: noop,
   hide: noop,
   quit: noop,
