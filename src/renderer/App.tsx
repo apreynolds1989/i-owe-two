@@ -1,22 +1,32 @@
 import { useEffect, useRef, useState } from 'react';
+import { RANGE_LABELS, sameWindow } from '../shared/range';
 import type { AppState, SprintMetrics } from '../shared/types';
 import titleDark from '../../assets/title-dark.png';
 import titleLight from '../../assets/title-light.png';
+import { shortRange } from './dates';
+import { HistoryCard } from './HistoryCard';
 import {
   CloseIcon, MonitorIcon, MoonIcon, MoreIcon, PencilIcon, PinIcon, PullRequestIcon, RefreshIcon, ReviewersIcon,
-  ReviewIcon, SunIcon,
+  ReviewIcon, SunIcon, WaitingIcon,
 } from './icons';
 import { MetricCard } from './MetricCard';
 import { RatioCard } from './RatioCard';
 import { StartForm } from './StartForm';
 import { NEXT_THEME, THEME_LABEL } from './theme';
 import { TokenForm } from './TokenForm';
+import { ViewingBar } from './ViewingBar';
 
-type MetricKey = 'authored' | 'reviewed' | 'needsReviewers';
+type MetricKey = 'authored' | 'reviewed' | 'waitingOnYou' | 'needsReviewers';
 
 const CARDS = [
-  { key: 'authored', label: 'Authored', icon: <PullRequestIcon />, hint: 'PRs opened in this window' },
-  { key: 'reviewed', label: 'Reviewed', icon: <ReviewIcon />, hint: "Others' PRs reviewed in this window (any review state)" },
+  { key: 'authored', label: 'Authored', icon: <PullRequestIcon />, hint: 'PRs opened in these dates' },
+  { key: 'reviewed', label: 'Reviewed', icon: <ReviewIcon />, hint: "Others' PRs reviewed in these dates (any review state)" },
+  {
+    key: 'waitingOnYou',
+    label: 'Waiting on you',
+    icon: <WaitingIcon />,
+    hint: 'Open, ready PRs where your review is requested and still pending, right now (GitHub drops a request once you review; team requests can show here too)',
+  },
   {
     key: 'needsReviewers',
     label: 'Need reviewers',
@@ -24,14 +34,6 @@ const CARDS = [
     hint: 'Open, ready PRs with fewer than 2 reviewers (whole organization or account, right now)',
   },
 ] as const;
-
-/** "2026-11-09", "2026-11-21" -> "Nov 9 – 21" (or "Nov 28 – Dec 5"). Read as UTC so dates never shift. */
-function shortRange(from: string, to: string) {
-  const d = (s: string) => new Date(`${s}T00:00:00Z`);
-  const month = (s: string) => d(s).toLocaleDateString(undefined, { month: 'short', timeZone: 'UTC' });
-  const day = (s: string) => d(s).getUTCDate();
-  return month(from) === month(to) ? `${month(from)} ${day(from)} – ${day(to)}` : `${month(from)} ${day(from)} – ${month(to)} ${day(to)}`;
-}
 const clock = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 function ago(iso: string) {
   const mins = Math.round((Date.now() - Date.parse(iso)) / 60_000);
@@ -88,9 +90,13 @@ export function App() {
   const cooldown = useCooldown(state?.refreshAvailableAt ?? 0);
   if (!state) return <div className="panel" />;
 
-  // Numbers from older settings are hidden once the settings change.
+  // Numbers from older settings, or for other dates than the ones on screen, are hidden.
   const current =
-    metrics && state.settings && JSON.stringify(metrics.settings) === JSON.stringify(state.settings) ? metrics : null;
+    metrics && state.settings && JSON.stringify(metrics.settings) === JSON.stringify(state.settings) && sameWindow(metrics.window, state.window)
+      ? metrics
+      : null;
+  const historyAction = (action: () => Promise<{ ok: true } | { ok: false; error: string }>) => () =>
+    void action().then((r) => setError(r.ok ? null : r.error));
   const canRefresh = state.view === 'metrics' && !loading && cooldown === 0;
   const ThemeIcon = state.theme === 'light' ? SunIcon : state.theme === 'dark' ? MoonIcon : MonitorIcon;
 
@@ -139,8 +145,20 @@ export function App() {
               <div className="menu" role="menu" onClick={() => setMenuOpen(false)}>
                 {state.hasToken && (
                   <button role="menuitem" onClick={() => window.sprint.showView('start')}>
-                    Change sprint…
+                    Change range…
                   </button>
+                )}
+                {state.settings && (
+                  <>
+                    <button role="menuitem" onClick={historyAction(() => window.sprint.exportHistory())}>
+                      Export history…
+                    </button>
+                    {!state.history.readOnly && (
+                      <button role="menuitem" onClick={() => void window.sprint.clearHistory()}>
+                        Clear history…
+                      </button>
+                    )}
+                  </>
                 )}
                 <button role="menuitem" onClick={() => window.sprint.showView('token')}>
                   Change token…
@@ -168,14 +186,17 @@ export function App() {
         {state.view === 'start' && <StartForm key={state.viewerLogin ?? ''} state={state} />}
         {state.view === 'metrics' && state.settings && (
           <>
-            <button className="context-chip" onClick={() => window.sprint.showView('start')} title="Change sprint">
+            <button className="context-chip" onClick={() => window.sprint.showView('start')} title="Change your range">
               <span>{state.settings.owner}</span>
               <span className="dot">·</span>
-              <span>{shortRange(state.settings.from, state.settings.to)}</span>
+              <span>{RANGE_LABELS[state.settings.range.kind]}</span>
+              {state.trackedWindow && <span>{shortRange(state.trackedWindow.from, state.trackedWindow.to)}</span>}
               <span className="dot">·</span>
               <span>@{state.settings.login}</span>
               <PencilIcon />
             </button>
+
+            <ViewingBar state={state} />
 
             {error && (
               <div className="error" role="alert">
@@ -183,7 +204,7 @@ export function App() {
               </div>
             )}
 
-            <RatioCard metrics={current} />
+            <RatioCard metrics={current} window={state.window} />
 
             <div className="metric-list">
               {CARDS.map(({ key, label, icon, hint }) => (
@@ -193,11 +214,12 @@ export function App() {
                   label={label}
                   hint={hint}
                   metric={current?.[key]}
-                  showReviewers={key === 'needsReviewers'}
+                  showReviewers={key === 'needsReviewers' || key === 'waitingOnYou'}
                   expanded={open === key}
                   onToggle={() => setOpen(open === key ? null : key)}
                 />
               ))}
+              <HistoryCard history={state.history} current={state.trackedWindow} />
             </div>
           </>
         )}

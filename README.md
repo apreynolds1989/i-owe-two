@@ -5,16 +5,20 @@
   </picture>
 </h1>
 
-A small tray app (like JetBrains Toolbox) that shows your GitHub pull-request numbers for a sprint:
+A small tray app (like JetBrains Toolbox) that shows your GitHub pull-request numbers for your range (a day, a week, a two-week sprint, a month or a year):
 
 - **Review ratio**: PRs you reviewed ÷ PRs you authored. Every PR needs two reviewers, so **2.0** means you're doing your share.
   - green from 2.0, orange from 1.75 up to 2.0, red below 1.75
-  - at **4.0+** it goes super-powered ✨
-- **Authored**: PRs you opened in the date window, whatever state they're in now.
-- **Reviewed**: other people's PRs where you submitted at least one review (comment, changes requested or approval) in the window. Each PR counts once.
-- **Need reviewers**: open, ready (non-draft) PRs with fewer than 2 distinct human reviewers. This is a live count, not limited to the window, and covers every repo of the owner you pick: for an organization, that's the whole org's backlog.
+  - below target it tells you how many more PRs to review to get there
+  - at **4.0+** with at least **30 reviews a week** it goes super-powered ✨ (scaled to the range: 5 for a day, 60 for two weeks, and so on). It's meant to be hard.
+- **Authored**: PRs you opened in the range, whatever state they're in now.
+- **Reviewed**: other people's PRs where you submitted at least one review (comment, changes requested or approval) in the range. Each PR counts once.
+- **Waiting on you**: open, ready PRs where your review is requested and still pending. GitHub drops a request once you review, and requests to a team you're on can show here too.
+- **Need reviewers**: open, ready (non-draft) PRs with fewer than 2 distinct human reviewers, longest-waiting first. This is a live count, not limited to the range, and covers every repo of the owner you pick: for an organization, that's the whole org's backlog.
+- **History**: each period's numbers, kept on your computer as your range rolls over.
+- **Tray dot**: the tray icon shows a green, orange, red or purple dot for where your range stands, so you can check without opening the panel.
 
-Click a number to see its PRs; click a PR to open it on GitHub.
+Click a number to see its PRs (with how long ago each was opened); click a PR to open it on GitHub.
 
 It works for any GitHub account or organization; nothing in it is specific to one team.
 
@@ -60,15 +64,17 @@ A token covers one owner. To look at a different organization, create a token fo
 
 - **Open and close:** click the tray icon (menu-bar icon on Mac) to open the panel. Click anywhere else, or press **Esc**, to hide it.
 - **📌 Pin:** keeps the panel open and on top of other windows, and lets you drag it anywhere by its header.
-- **Choose a sprint:** set these on the Start screen.
+- **Choose your range:** set these on the Start screen.
   - **Where**: the organization or username your token was created for.
   - **GitHub user**: whose numbers to count. It defaults to you, and you can enter a teammate.
-  - **From / To**: the dates, inclusive, in your computer's time zone.
+  - **Range** and **Starts on**: how long each period is (Day, Week, Two weeks, Month or Year) and the day one begins, e.g. your sprint's first day. Dates are in your computer's time zone. The app moves on to the next period by itself.
   - **Ignore PRs labelled** (optional): labels such as "do not review" that should be left out of "Need reviewers".
-- **Change the sprint later:** click the line under the header (`org · dates · @user`).
+- **Change your range later:** click the line under the header (`org · range · dates · @user`). If you change the owner, user, range or start date and you have history, you're asked whether to **archive** it (kept read-only under History) or **delete** it. Going back to exactly the same settings later picks the archived history up again.
+- **Look at other dates:** the **Viewing** menu shows Today, the last 7, 14 or 30 days, or custom dates, without changing your settings. It's just a look: nothing is saved to history, and the tray keeps showing your range. **Back to my range** returns.
+- **When a period ends:** just after midnight (or when your computer wakes, or when you open the panel), the app notices the new period. It fetches the period that just ended one last time to lock in its numbers, then fetches the new one. That's the only thing it ever does without being asked. If that last fetch can't happen, the period shows as "partial" in History.
 - **Refresh:** the ⟳ button. To stay well within GitHub's limits, it can be used once every 30 seconds.
 - **Theme:** the 🖥 / ☀ / 🌙 button switches between System, Light and Dark.
-- **⋯ menu:** Change sprint, Change token, Start at login (installed app only), and Quit.
+- **⋯ menu:** Change range, Export history (a CSV file, saved where you choose), Clear history, Change token, Start at login (installed app only), and Quit.
 - **Tray menu:** right-click the tray icon for the same options.
 
 Closing the panel only hides it, and the app stays in the tray. Use **Quit** to exit.
@@ -81,11 +87,12 @@ npm ci
 npm start          # or: npm run dist, then run the new installer
 ```
 
-Installing a new version over the old one keeps your settings and token. Please update now and then: new Electron versions include Chromium security fixes.
+Installing a new version over the old one keeps your settings, token and history. Settings from 0.1.x are converted: a 7-day window becomes a Week range, anything else a Two weeks range, starting on its first day. Please update now and then: new Electron versions include Chromium security fixes.
 
 ## Removing it
 
-- **Installed app:** uninstall it from Windows Settings › Apps, or drag it out of Applications on Mac. The Windows uninstaller also deletes the app's saved data (including the encrypted token) and the installer copy it keeps in `%LOCALAPPDATA%\reciprocity-updater`.
+- **Installed app:** uninstall it from Windows Settings › Apps, or drag it out of Applications on Mac. The Windows uninstaller also deletes the app's saved data (including the encrypted token and your history) and the installer copy it keeps in `%LOCALAPPDATA%\reciprocity-updater`.
+- **History:** uninstalling deletes it. To keep a copy, use **⋯ › Export history…** first.
 - **Token:** to switch off its access completely, delete it on GitHub at https://github.com/settings/personal-access-tokens. In the app, **Change token… › Remove the saved token** deletes it from your computer.
 
 ## Safety
@@ -96,7 +103,7 @@ The short version:
 - Stored encrypted by your OS.
 - Only ever sent to `api.github.com`.
 - The window's code is sandboxed and can't reach the network or your files.
-- No telemetry, no auto-update, no background activity.
+- No telemetry, no auto-update. The only thing it does unasked is fetch your numbers when a new period starts.
 
 The details, and the remaining risks stated plainly, are in [SECURITY.md](SECURITY.md).
 
@@ -120,7 +127,7 @@ Layout:
 - `src/main`: the main process. It handles the tray, the panel, the token, the GitHub calls and the security setup.
 - `src/preload`: the bridge to the UI.
 - `src/renderer`: the React UI.
-- `src/shared`: types and validation used by both sides.
+- `src/shared`: types, validation, and the rules for ranges, the ratio and history, used by both sides.
 - `build/installer.nsh`: Windows installer hooks. electron-builder loads this file automatically.
 
 ## Disclaimer

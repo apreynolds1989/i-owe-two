@@ -1,12 +1,21 @@
-// Review ratio: PRs reviewed ÷ PRs authored in the sprint. Each PR needs two reviewers, so reviewing
+// Review ratio: PRs reviewed ÷ PRs authored in the range. Each PR needs two reviewers, so reviewing
 // at least twice as many PRs as you open is your share of the team's review load.
 
 export const RATIO_SUPER = 4.0;
 export const RATIO_TARGET = 2.0;
 export const RATIO_WARN = 1.75;
+/**
+ * Super also needs this many PRs reviewed per 7 days, scaled to the range's length. It's meant to be
+ * hard: with only a handful of PRs, 4.0 alone is too easy to hit.
+ */
+export const SUPER_REVIEWS_PER_WEEK = 30;
+
+/** Reviews needed for super in a range of `days` days (Day 5, Week 30, Two weeks 60, Year 1,565). */
+export const superMinReviews = (days: number) => Math.ceil((SUPER_REVIEWS_PER_WEEK * days) / 7);
 
 /**
- * super: 4.0 and up (sparkles). good: target up to 4.0. warn: 1.75 up to target. bad: below 1.75.
+ * super: 4.0 and up with enough reviews for the range (sparkles). good: target and up (including 4.0+
+ * short of the review count). warn: 1.75 up to target. bad: below 1.75.
  * none: no PRs authored (nothing to divide by).
  */
 export type RatioStatus = 'super' | 'good' | 'warn' | 'bad' | 'none';
@@ -36,16 +45,35 @@ export const SUPER_MESSAGES = [
   'Merge queue hero 🦸',
 ];
 
-export function reviewRatio(reviewed: number, authored: number): ReviewRatio {
+// Judge the rounded value so the color always agrees with the number on screen
+// (1.999 shows as "2.00", so it must be green, not yellow).
+const rounded = (reviewed: number, authored: number) => Math.round((reviewed / authored) * 100) / 100;
+const plural = (n: number, word: string) => `${n} more ${word}${n === 1 ? '' : 's'}`;
+
+/** How many more PRs to review to reach the target (0 when already there, or when nothing was authored). */
+export function reviewsToTarget(reviewed: number, authored: number): number {
+  if (authored <= 0) return 0;
+  // Uses the same rounding as the ratio, so the hint always agrees with the number on screen.
+  let n = Math.max(0, Math.floor(RATIO_TARGET * authored - reviewed) - 1);
+  while (rounded(reviewed + n, authored) < RATIO_TARGET) n++;
+  while (n > 0 && rounded(reviewed + n - 1, authored) >= RATIO_TARGET) n--;
+  return n;
+}
+
+/** `minReviews` is superMinReviews() for the range being shown. */
+export function reviewRatio(reviewed: number, authored: number, minReviews: number): ReviewRatio {
   if (authored === 0) return { value: null, display: '–', status: 'none', label: LABELS.none };
-  // Judge the rounded value so the color always agrees with the number on screen
-  // (1.999 shows as "2.00", so it must be green, not yellow).
-  const value = Math.round((reviewed / authored) * 100) / 100;
+  const value = rounded(reviewed, authored);
+  const display = value.toFixed(2);
   if (value >= RATIO_SUPER) {
+    if (reviewed < minReviews) {
+      return { value, display, status: 'good', label: `${LABELS.good} · ${plural(minReviews - reviewed, 'review')} to go super` };
+    }
     // Picked from the value, not at random, so the message stays put across refreshes until the ratio changes.
     const label = SUPER_MESSAGES[Math.round(value * 100) % SUPER_MESSAGES.length]!;
-    return { value, display: value.toFixed(2), status: 'super', label };
+    return { value, display, status: 'super', label };
   }
-  const status = value >= RATIO_TARGET ? 'good' : value >= RATIO_WARN ? 'warn' : 'bad';
-  return { value, display: value.toFixed(2), status, label: LABELS[status] };
+  if (value >= RATIO_TARGET) return { value, display, status: 'good', label: LABELS.good };
+  const status = value >= RATIO_WARN ? 'warn' : 'bad';
+  return { value, display, status, label: `${LABELS[status]} · review ${plural(reviewsToTarget(reviewed, authored), 'PR')}` };
 }

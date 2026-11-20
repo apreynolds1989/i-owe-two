@@ -1,10 +1,10 @@
-// Fetches the three numbers from GitHub for the chosen owner, person and dates.
+// Fetches the numbers from GitHub for the chosen owner, person and dates.
 import type { SprintWindow } from '../shared/args';
 import type { Metric, PrSummary, SprintMetrics, SprintSettings } from '../shared/types';
 import { actorIsBot, actorLogin, CancelledError, GitHubError, graphql, QUERIES, type Actor } from './github';
 import {
   buildSearchQueries, hasIgnoredLabel, humanReviewers, inWindow, makeLocalDate, REVIEWERS_NEEDED,
-  reviewedInWindow, type ReviewNode,
+  reviewedInWindow, type ReviewNode, type SearchQueries,
 } from './rules';
 
 interface PrNode {
@@ -31,7 +31,7 @@ const MAX_PAGES = 20;
 /** Pause between search requests, to stay well clear of GitHub's secondary rate limits. */
 const REQUEST_GAP_MS = 300;
 
-const pause = (signal?: AbortSignal) =>
+export const pause = (signal?: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
     if (signal?.aborted) return reject(new CancelledError('Cancelled'));
     const id = setTimeout(resolve, REQUEST_GAP_MS);
@@ -72,6 +72,7 @@ const summary = (n: PrNode, extra: Partial<PrSummary> = {}): PrSummary => ({
   title: n.title,
   url: n.url,
   author: actorLogin(n.author),
+  createdAt: n.createdAt,
   ...extra,
 });
 
@@ -82,49 +83,74 @@ const metric = (prs: PrSummary[], search: { total: number }): Metric => ({
   searchTotal: search.total,
 });
 
+const newestFirst = (a: PrNode, b: PrNode) => b.createdAt.localeCompare(a.createdAt);
+const oldestFirst = (a: PrNode, b: PrNode) => a.createdAt.localeCompare(b.createdAt);
+
+/** Open PRs with their distinct human reviewers counted, longest-waiting first. */
+const withReviewers = (nodes: PrNode[]) =>
+  [...nodes].sort(oldestFirst).map((n) => ({ n, reviewers: humanReviewers(actorLogin(n.author), n.reviews.nodes).length }));
+
+/** The two searches the ratio needs: PRs authored and PRs reviewed in the window. */
+async function authoredAndReviewed(token: string, settings: SprintSettings, w: SprintWindow, q: SearchQueries, timezone: string, signal?: AbortSignal) {
+  const toLocal = makeLocalDate(timezone);
+  const authoredRaw = await searchPrs(token, q.authored, signal);
+  await pause(signal);
+  const reviewedRaw = await searchPrs(token, q.reviewed, signal);
+  const authored = authoredRaw.nodes.filter((n) => inWindow(toLocal(n.createdAt), w)).sort(newestFirst);
+  const reviewed = reviewedRaw.nodes.filter((n) => reviewedInWindow(settings.login, n.reviews.nodes, w, toLocal)).sort(newestFirst);
+  return { authored, authoredRaw, reviewed, reviewedRaw };
+}
+
+/** Just the two counts, for locking in a period that has ended (two searches instead of four). */
+export async function getPeriodCounts(
+  token: string,
+  settings: SprintSettings,
+  w: SprintWindow,
+  ownerType: 'User' | 'Organization',
+  timezone: string,
+  signal?: AbortSignal,
+): Promise<{ authored: number; reviewed: number }> {
+  const q = buildSearchQueries(ownerType, settings.owner, settings.login, w);
+  const r = await authoredAndReviewed(token, settings, w, q, timezone, signal);
+  return { authored: r.authored.length, reviewed: r.reviewed.length };
+}
+
 export async function getSprintMetrics(
   token: string,
   settings: SprintSettings,
+  w: SprintWindow,
   ownerType: 'User' | 'Organization',
   timezone: string,
   signal?: AbortSignal,
 ): Promise<SprintMetrics> {
-  const w: SprintWindow = { from: settings.from, to: settings.to };
-  const toLocal = makeLocalDate(timezone);
   const q = buildSearchQueries(ownerType, settings.owner, settings.login, w);
 
   // One search at a time, with a short pause between requests: gentle on GitHub's rate limits.
-  const authoredRaw = await searchPrs(token, q.authored, signal);
-  await pause(signal);
-  const reviewedRaw = await searchPrs(token, q.reviewed, signal);
+  const r = await authoredAndReviewed(token, settings, w, q, timezone, signal);
   await pause(signal);
   const openRaw = await searchPrs(token, q.open, signal);
+  await pause(signal);
+  const waitingRaw = await searchPrs(token, q.waiting, signal);
 
-  const authored = authoredRaw.nodes
-    .filter((n) => inWindow(toLocal(n.createdAt), w))
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .map((n) => summary(n));
-
-  const reviewed = reviewedRaw.nodes
-    .filter((n) => reviewedInWindow(settings.login, n.reviews.nodes, w, toLocal))
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .map((n) => summary(n));
-
-  const needsReviewers = openRaw.nodes
-    .filter((n) => !actorIsBot(n.author))
-    .filter((n) => !hasIgnoredLabel(n.labels.nodes.map((l) => l.name), settings.ignoreLabels))
-    .map((n) => ({ n, reviewers: humanReviewers(actorLogin(n.author), n.reviews.nodes).length }))
+  const needsReviewers = withReviewers(
+    openRaw.nodes
+      .filter((n) => !actorIsBot(n.author))
+      .filter((n) => !hasIgnoredLabel(n.labels.nodes.map((l) => l.name), settings.ignoreLabels)),
+  )
     .filter(({ reviewers }) => reviewers < REVIEWERS_NEEDED)
-    .sort((a, b) => a.n.createdAt.localeCompare(b.n.createdAt)) // longest-waiting first
     .map(({ n, reviewers }) => summary(n, { reviewerCount: reviewers }));
+
+  const waitingOnYou = withReviewers(waitingRaw.nodes).map(({ n, reviewers }) => summary(n, { reviewerCount: reviewers }));
 
   return {
     settings,
+    window: w,
     ownerType,
     timezone,
     fetchedAt: new Date().toISOString(),
-    authored: metric(authored, authoredRaw),
-    reviewed: metric(reviewed, reviewedRaw),
+    authored: metric(r.authored.map((n) => summary(n)), r.authoredRaw),
+    reviewed: metric(r.reviewed.map((n) => summary(n)), r.reviewedRaw),
     needsReviewers: metric(needsReviewers, openRaw),
+    waitingOnYou: metric(waitingOnYou, waitingRaw),
   };
 }

@@ -1,44 +1,50 @@
 import { useState, type FormEvent } from 'react';
-import { parseWindow } from '../shared/args';
-import type { AppState } from '../shared/types';
+import { isValidDate } from '../shared/args';
+import { periodContaining, RANGE_KINDS, RANGE_LABELS, shiftDay, validRange, type RangeKind } from '../shared/range';
+import type { AppState, HistoryChoice, StartInput } from '../shared/types';
 import { isValidLogin, parseLabels } from '../shared/validate';
+import { localToday, shortRange } from './dates';
 
-const ymd = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+type Form = Omit<StartInput, 'historyChoice'>;
 
-/** Defaults: the last values used, or the token owner and the last 14 days. */
-function defaults(state: AppState) {
+/** Defaults: the last values used, or the token owner and a week starting today. */
+function defaults(state: AppState): Form {
   if (state.settings) {
     const s = state.settings;
-    return { owner: s.owner, login: s.login, from: s.from, to: s.to, ignoreLabels: s.ignoreLabels.join(', ') };
+    return { owner: s.owner, login: s.login, kind: s.range.kind, start: s.range.start, ignoreLabels: s.ignoreLabels.join(', ') };
   }
-  const today = new Date();
-  const start = new Date(today);
-  start.setDate(today.getDate() - 13);
   const me = state.viewerLogin ?? '';
-  return { owner: me, login: me, from: ymd(start), to: ymd(today), ignoreLabels: '' };
+  return { owner: me, login: me, kind: 'week', start: localToday(), ignoreLabels: '' };
+}
+
+/** "Current: Nov 17 – 23 · next starts Nov 24" for a valid range, else null. */
+function preview(form: Form): string | null {
+  const range = validRange({ kind: form.kind, start: form.start });
+  if (!range) return null;
+  const now = periodContaining(range, localToday());
+  if (range.kind === 'day') return 'Today only, starting again each day at midnight.';
+  return `Current: ${shortRange(now.from, now.to)} · next starts ${shortRange(shiftDay(now.to, 1), shiftDay(now.to, 1))}.`;
 }
 
 export function StartForm({ state }: { state: AppState }) {
   const [form, setForm] = useState(() => defaults(state));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const set = (key: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [key]: e.target.value });
+  /** Set when saving would retire existing history: the person picks archive, delete or cancel. */
+  const [choice, setChoice] = useState<HistoryChoice | null>(null);
+  const set = (key: keyof Form) => (e: { target: { value: string } }) => {
+    setForm({ ...form, [key]: e.target.value });
+    setChoice(null);
+  };
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    // Checked here for quick feedback; the main process checks everything again.
-    if (!isValidLogin(form.owner.trim())) return setError('"Where" must be a GitHub username or organization name.');
-    if (!isValidLogin(form.login.trim())) return setError('Enter a valid GitHub username.');
-    const w = parseWindow(form.from, form.to);
-    if ('error' in w) return setError(w.error);
-    const labels = parseLabels(form.ignoreLabels);
-    if (!Array.isArray(labels)) return setError(labels.error);
+  async function send(historyChoice?: 'archive' | 'delete') {
     setBusy(true);
     setError(null);
     try {
-      const result = await window.sprint.start(form);
-      if (!result.ok) setError(result.error);
+      const result = await window.sprint.start({ ...form, historyChoice });
+      if (result.ok) return;
+      if ('historyChoice' in result) setChoice(result.historyChoice);
+      else setError(result.error);
     } catch {
       setError('Something went wrong. Please try again.');
     } finally {
@@ -46,12 +52,25 @@ export function StartForm({ state }: { state: AppState }) {
     }
   }
 
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    // Checked here for quick feedback; the main process checks everything again.
+    if (!isValidLogin(form.owner.trim())) return setError('"Where" must be a GitHub username or organization name.');
+    if (!isValidLogin(form.login.trim())) return setError('Enter a valid GitHub username.');
+    if (!isValidDate(form.start) || !validRange({ kind: form.kind, start: form.start })) return setError('Choose a valid start date.');
+    const labels = parseLabels(form.ignoreLabels);
+    if (!Array.isArray(labels)) return setError(labels.error);
+    void send();
+  }
+
+  const hint = preview(form);
+
   return (
     <div className="screen">
       <div className="screen-title">
         <div>
-          <h2>Choose a sprint</h2>
-          <p className="muted">Whose pull requests, and which dates.</p>
+          <h2>Choose your range</h2>
+          <p className="muted">Whose pull requests, and how often your range starts over.</p>
         </div>
       </div>
 
@@ -68,14 +87,23 @@ export function StartForm({ state }: { state: AppState }) {
         </label>
         <div className="field-row">
           <label className="field">
-            <span>From</span>
-            <input type="date" value={form.from} onChange={set('from')} />
+            <span>Range</span>
+            <select value={form.kind} onChange={set('kind')}>
+              {RANGE_KINDS.map((k: RangeKind) => (
+                <option key={k} value={k}>
+                  {RANGE_LABELS[k]}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="field">
-            <span>To</span>
-            <input type="date" value={form.to} onChange={set('to')} />
+            <span>Starts on</span>
+            <input type="date" value={form.start} onChange={set('start')} />
           </label>
         </div>
+        <small className="muted range-preview">
+          {hint ?? 'Pick the day a range begins, e.g. your sprint’s first day.'} Your history is kept for this range.
+        </small>
         <label className="field">
           <span>
             Ignore PRs labelled <span className="muted">(optional)</span>
@@ -88,16 +116,36 @@ export function StartForm({ state }: { state: AppState }) {
             {error}
           </p>
         )}
-        <div className="form-actions">
-          {state.settings && (
-            <button type="button" className="button ghost" onClick={() => window.sprint.showView('metrics')}>
-              Cancel
+        {choice ? (
+          <div className="history-choice" role="alertdialog" aria-label="Existing history">
+            <p>
+              You have {choice.periods} {choice.periods === 1 ? 'period' : 'periods'} of {RANGE_LABELS[choice.kind].toLowerCase()} history
+              starting {shortRange(choice.start, choice.start)}. These settings start a new history.
+            </p>
+            <div className="form-actions">
+              <button type="button" className="button ghost" onClick={() => setChoice(null)} disabled={busy}>
+                Cancel
+              </button>
+              <button type="button" className="button ghost danger" onClick={() => void send('delete')} disabled={busy}>
+                Delete & start new
+              </button>
+              <button type="button" className="button primary" onClick={() => void send('archive')} disabled={busy}>
+                Archive & start new
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="form-actions">
+            {state.settings && (
+              <button type="button" className="button ghost" onClick={() => window.sprint.showView('metrics')}>
+                Cancel
+              </button>
+            )}
+            <button type="submit" className="button primary" disabled={busy}>
+              {busy ? 'Checking…' : 'Start'}
             </button>
-          )}
-          <button type="submit" className="button primary" disabled={busy}>
-            {busy ? 'Checking…' : 'Start'}
-          </button>
-        </div>
+          </div>
+        )}
       </form>
     </div>
   );

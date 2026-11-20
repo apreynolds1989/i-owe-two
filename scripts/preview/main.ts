@@ -8,19 +8,32 @@ import { fileURLToPath } from 'node:url';
 import { GitHubError, graphql, QUERIES } from '../../src/main/github';
 import { hardenSession, hardenWebContents, INDEX_URL, registerAppScheme, serveRenderer } from '../../src/main/security';
 import { installTransport } from '../../src/main/transport';
+import type { Series } from '../../src/shared/history';
 import type { AppState, Metric, SprintMetrics, SprintSettings } from '../../src/shared/types';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
 const out = join(root, 'screenshots');
 
-const settings: SprintSettings = { owner: 'octo-org', login: 'alice', from: '2026-11-09', to: '2026-11-21', ignoreLabels: [] };
+const settings: SprintSettings = { owner: 'octo-org', login: 'alice', range: { kind: 'week', start: '2026-11-02' }, ignoreLabels: [] };
+const window = { from: '2026-11-16', to: '2026-11-22' };
+const period = (from: string, to: string, authored: number, reviewed: number, final = true) => ({
+  from, to, authored, reviewed, final, updatedAt: '2026-11-19T14:42:00Z',
+});
+const active: Series = {
+  owner: 'octo-org', login: 'alice', kind: 'week', start: '2026-11-02', startedAt: '2026-11-02T09:00:00Z', archivedAt: null,
+  periods: [period('2026-11-02', '2026-11-08', 4, 7), period('2026-11-09', '2026-11-15', 5, 11), period('2026-11-16', '2026-11-22', 5, 12, false)],
+};
 const baseState: AppState = {
   view: 'metrics',
   hasToken: true,
   tokenPersisted: true,
   viewerLogin: 'alice',
   settings,
+  trackedWindow: window,
+  viewing: { kind: 'tracked' },
+  window,
+  history: { active, archived: [], readOnly: false },
   theme: 'system',
   pinned: false,
   openAtLogin: false,
@@ -33,6 +46,7 @@ const pr = (n: number, title: string, repo = 'octo-org/web-app', extra = {}) => 
   title,
   url: `https://github.com/${repo}/pull/${n}`,
   author: 'bob',
+  createdAt: '2026-11-15T10:00:00Z',
   ...extra,
 });
 const metric = (count: number, prs = [pr(101, 'Add the settings page'), pr(102, 'Fix flaky date test', 'octo-org/api')]): Metric => ({
@@ -43,6 +57,7 @@ const metric = (count: number, prs = [pr(101, 'Add the settings page'), pr(102, 
 });
 const metrics = (authored: number, reviewed: number): SprintMetrics => ({
   settings,
+  window,
   ownerType: 'Organization',
   timezone: 'America/Toronto',
   fetchedAt: '2026-11-19T14:42:00Z',
@@ -52,6 +67,7 @@ const metrics = (authored: number, reviewed: number): SprintMetrics => ({
     pr(88, 'Migrate the billing worker to the new queue', 'octo-org/api', { reviewerCount: 0, author: 'carol' }),
     pr(93, 'Dark mode for the dashboard', 'octo-org/web-app', { reviewerCount: 1, author: 'dave' }),
   ]),
+  waitingOnYou: metric(1, [pr(97, 'Retry webhooks with backoff', 'octo-org/api', { reviewerCount: 1, author: 'erin' })]),
 });
 
 interface Scenario {
@@ -59,15 +75,32 @@ interface Scenario {
   state: AppState;
   metrics?: SprintMetrics;
   expand?: boolean;
+  /** Open the History card (and its archived list) and scroll down to it. */
+  history?: boolean;
 }
+const archivedSeries: Series = {
+  owner: 'octo-org', login: 'alice', kind: 'twoWeeks', start: '2026-09-28', startedAt: '2026-09-28T09:00:00Z', archivedAt: '2026-11-02T09:00:00Z',
+  periods: [period('2026-09-28', '2026-10-11', 6, 13), period('2026-10-12', '2026-10-25', 7, 12, false)],
+};
 const scenarios: Scenario[] = [
   { name: 'token', state: { ...baseState, view: 'token', hasToken: false, settings: null } },
   { name: 'start', state: { ...baseState, view: 'start' } },
   { name: 'metrics-good', state: baseState, metrics: metrics(5, 12) },
   { name: 'metrics-warn', state: baseState, metrics: metrics(10, 18) },
   { name: 'metrics-bad', state: baseState, metrics: metrics(10, 9) },
-  { name: 'metrics-super', state: { ...baseState, pinned: true }, metrics: metrics(4, 19) },
+  { name: 'metrics-super', state: { ...baseState, pinned: true }, metrics: metrics(8, 33) },
+  {
+    name: 'metrics-viewing',
+    state: { ...baseState, viewing: { kind: 'lastDays', days: 14 }, window: { from: '2026-11-07', to: '2026-11-20' } },
+    metrics: { ...metrics(9, 20), window: { from: '2026-11-07', to: '2026-11-20' } },
+  },
   { name: 'metrics-expanded', state: baseState, metrics: metrics(5, 12), expand: true },
+  {
+    name: 'metrics-history',
+    state: { ...baseState, history: { active, archived: [archivedSeries], readOnly: false } },
+    metrics: metrics(5, 12),
+    history: true,
+  },
 ];
 
 let current: Scenario = scenarios[0]!;
@@ -94,7 +127,14 @@ void app.whenReady().then(async () => {
       await win.loadURL(INDEX_URL);
       await new Promise((r) => setTimeout(r, 400)); // the fake numbers arrive shortly after load
       if (s.expand) {
-        await win.webContents.executeJavaScript(`document.querySelectorAll('.metric-head')[2]?.click()`);
+        await win.webContents.executeJavaScript(`document.querySelectorAll('.metric-head')[3]?.click()`);
+      }
+      if (s.history) {
+        await win.webContents.executeJavaScript(`document.querySelector('.history-card .metric-head')?.click()`);
+        await new Promise((r) => setTimeout(r, 100));
+        await win.webContents.executeJavaScript(
+          `document.querySelector('.archived-toggle')?.click(); setTimeout(() => { const c = document.querySelector('.content'); c.scrollTop = c.scrollHeight; }, 50)`,
+        );
       }
       await new Promise((r) => setTimeout(r, 900)); // let count-up animations finish
       const image = await win.webContents.capturePage();
