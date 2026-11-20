@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Metric } from '../shared/types';
+import { openedAgo } from './dates';
 import { ChevronIcon } from './icons';
 
 const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -68,7 +69,8 @@ export function MetricCard(props: {
               </a>
               {showReviewers && (
                 <span className="pr-meta">
-                  by {pr.author} · {pr.reviewerCount ?? 0} of 2 reviewers
+                  {/* "opened", not "waiting": a PR that started as a draft wasn't waiting the whole time. */}
+                  by {pr.author} · {openedAgo(pr.createdAt)} · {pr.reviewerCount ?? 0} of 2 reviewers
                 </span>
               )}
             </li>

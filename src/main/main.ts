@@ -1,17 +1,28 @@
 // Electron main process: owns the tray icon, the panel, the token and every call to GitHub.
 // The UI (src/renderer) is sandboxed and can only ask for things through the preload bridge; every
 // request is checked here (sender, payload shape, values) before anything happens.
-import { app, BrowserWindow, ipcMain, Menu, nativeTheme, Tray, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
+import {
+  app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, powerMonitor, Tray, type IpcMainEvent, type IpcMainInvokeEvent,
+  type NativeImage,
+} from 'electron';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseWindow } from '../shared/args';
-import { reviewRatio } from '../shared/ratio';
-import { IPC, type ActionResult, type AppState, type SprintMetrics, type SprintSettings, type Theme, type View } from '../shared/types';
+import type { SprintWindow } from '../shared/args';
+import {
+  EMPTY_HISTORY, historyView, needsChoice, pendingFinalize, recordPeriod, switchSeries, type History,
+} from '../shared/history';
+import { periodContaining, parseView, sameWindow, TRACKED, validRange, viewWindow, windowDays, type ViewRange } from '../shared/range';
+import { reviewRatio, superMinReviews } from '../shared/ratio';
+import {
+  IPC, type ActionResult, type AppState, type SprintMetrics, type SprintSettings, type StartResult, type Theme, type View,
+} from '../shared/types';
 import { checkToken, isValidLogin, MAX_LOGIN_LENGTH, parseLabels, redact } from '../shared/validate';
 import { CancelledError, GitHubError } from './github';
-import { getOwnerType, getSprintMetrics, getViewerLogin } from './metrics';
-import { createPanel, createTray, loadIcon, placeNearTray, visibleBounds } from './panel';
+import { exportHistory, loadHistory, saveHistory } from './history';
+import { getOwnerType, getPeriodCounts, getSprintMetrics, getViewerLogin, pause } from './metrics';
+import { createPanel, createTray, loadIcon, placeNearTray, trayImage, visibleBounds } from './panel';
 import { loadPrefs, savePrefs, type Prefs } from './prefs';
+import { makeLocalDate } from './rules';
 import {
   fromOurPage, hardenSession, hardenWebContents, openExternalSafely, refuseDangerousSwitches, registerAppScheme, serveRenderer,
 } from './security';
@@ -24,6 +35,9 @@ const appDir = dirname(distDir);
 
 const REFRESH_COOLDOWN_MS = 30_000;
 const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+const toLocalDate = makeLocalDate(timezone);
+/** Today's date where the person is. */
+const today = () => toLocalDate(new Date().toISOString());
 
 // ---------- before the app is ready ----------
 
@@ -47,6 +61,18 @@ if (!app.requestSingleInstanceLock()) {
 // ---------- state ----------
 
 let prefs: Prefs = loadPrefs();
+const loaded = loadHistory();
+let history: History = loaded.history;
+/** A history file written by a newer version of the app is shown as empty and never overwritten. */
+const historyReadOnly = loaded.readOnly;
+/** A temporary look at other dates. Kept in memory only: never saved, never recorded in history. */
+let viewing: ViewRange = TRACKED;
+/** The latest numbers for the tracked range: the tray always shows these, whatever is being viewed. */
+let lastTracked: SprintMetrics | null = null;
+/** The tracked period last fetched, to notice when it rolls over. */
+let lastTrackedWindow: SprintWindow | null = null;
+/** Ended periods whose final fetch failed this session (other than for a rate limit): not retried until restart. */
+const finalizeFailed = new Set<string>();
 let view: View = 'start';
 let viewerLogin: string | null = null;
 const ownerTypes = new Map<string, 'User' | 'Organization'>();
@@ -56,6 +82,17 @@ let quitting = false;
 
 let win: BrowserWindow;
 let tray: Tray;
+let icon: NativeImage;
+/** While a native dialog is open the panel loses focus; don't hide it (and the dialog's parent) then. */
+let dialogOpen = false;
+
+/** The current period of the tracked range. */
+const trackedWindow = () => (prefs.settings ? periodContaining(prefs.settings.range, today()) : null);
+/** The dates on screen: the tracked period, or the range being viewed. */
+function shownWindow() {
+  const tracked = trackedWindow();
+  return tracked ? viewWindow(viewing, tracked, today()) : null;
+}
 
 function state(): AppState {
   return {
@@ -64,6 +101,10 @@ function state(): AppState {
     tokenPersisted: canPersist(),
     viewerLogin,
     settings: prefs.settings,
+    trackedWindow: trackedWindow(),
+    viewing,
+    window: shownWindow(),
+    history: historyView(history, historyReadOnly, prefs.settings),
     theme: prefs.theme,
     pinned: prefs.pinned,
     openAtLogin: app.isPackaged && app.getLoginItemSettings().openAtLogin,
@@ -82,6 +123,11 @@ function pushState() {
 function updatePrefs(change: Partial<Prefs>) {
   prefs = { ...prefs, ...change };
   savePrefs(prefs);
+}
+function updateHistory(next: History) {
+  if (historyReadOnly || next === history) return;
+  history = next;
+  saveHistory(history);
 }
 
 /** A message that's safe to show: our own GitHub errors are already safe; anything else is redacted. */
@@ -133,7 +179,8 @@ function refresh(force = false): void {
   }
   const token = loadToken();
   const settings = prefs.settings;
-  if (!token || !settings) return;
+  const tracked = trackedWindow();
+  if (!token || !settings || !tracked) return;
   const now = Date.now();
   if (now < rateLimitedUntil) {
     const mins = Math.max(1, Math.ceil((rateLimitedUntil - now) / 60_000));
@@ -152,6 +199,10 @@ function refresh(force = false): void {
 
   lastStartedAt = now;
   refreshAvailableAt = now + REFRESH_COOLDOWN_MS;
+  // Captured now: if the view or settings change mid-fetch, this refresh is cancelled and run again.
+  const isTracked = viewing.kind === 'tracked';
+  const window = viewWindow(viewing, tracked, today());
+  lastTrackedWindow = tracked;
   const ac = new AbortController();
   controller = ac;
   pushState();
@@ -159,10 +210,16 @@ function refresh(force = false): void {
     send(IPC.loading, true);
     try {
       const ownerType = await ownerTypeFor(token, settings.owner, ac.signal);
-      const metrics = await getSprintMetrics(token, settings, ownerType, timezone, ac.signal);
+      if (isTracked) await finalizeEndedPeriod(token, settings, tracked, ownerType, ac.signal);
+      const metrics = await getSprintMetrics(token, settings, window, ownerType, timezone, ac.signal);
       if (ac.signal.aborted) return;
+      if (isTracked) {
+        lastTracked = metrics;
+        updateTray();
+        const counts = { authored: metrics.authored.count, reviewed: metrics.reviewed.count };
+        updateHistory(recordPeriod(history, settings, { ...window, ...counts, final: false }, new Date().toISOString()));
+      }
       send(IPC.result, { ok: true, metrics });
-      updateTooltip(metrics);
     } catch (err) {
       if (ac.signal.aborted || err instanceof CancelledError) return; // superseded: nothing to report
       if (err instanceof GitHubError && err.retryAt) {
@@ -184,11 +241,68 @@ function refresh(force = false): void {
   });
 }
 
+/**
+ * If the tracked range's last recorded period has ended without being locked in (it rolled over while the
+ * app was running, closed or asleep), fetch its counts one last time and mark it final. A failure here
+ * never blocks the current numbers: the period just stays "partial". Rate limits and cancelling still
+ * stop the whole refresh, as everywhere else.
+ */
+async function finalizeEndedPeriod(
+  token: string,
+  settings: SprintSettings,
+  tracked: SprintWindow,
+  ownerType: 'User' | 'Organization',
+  signal: AbortSignal,
+) {
+  const ended = pendingFinalize(history, settings, tracked);
+  if (!ended || historyReadOnly) return;
+  const key = `${ended.from}|${ended.to}`;
+  if (finalizeFailed.has(key)) return;
+  try {
+    const counts = await getPeriodCounts(token, settings, ended, ownerType, timezone, signal);
+    if (signal.aborted) return;
+    updateHistory(recordPeriod(history, settings, { from: ended.from, to: ended.to, ...counts, final: true }, new Date().toISOString()));
+    await pause(signal);
+  } catch (err) {
+    if (signal.aborted || err instanceof CancelledError || (err instanceof GitHubError && err.retryAt)) throw err;
+    finalizeFailed.add(key);
+  }
+}
+
+/** Notices a new tracked period (after midnight, waking from sleep, or opening the panel) and fetches it. */
+function checkRollover() {
+  const tracked = trackedWindow();
+  if (!tracked || !lastTrackedWindow || sameWindow(tracked, lastTrackedWindow)) return;
+  viewing = TRACKED; // a temporary view belonged to the old period
+  pushState();
+  refresh(true);
+}
+
+let midnightTimer: ReturnType<typeof setTimeout> | null = null;
+/** Checks for a rollover just after each local midnight. Nothing else runs in the background. */
+function scheduleMidnightCheck() {
+  if (midnightTimer) clearTimeout(midnightTimer);
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(24, 0, 5, 0); // a few seconds past midnight, local time
+  midnightTimer = setTimeout(() => {
+    checkRollover();
+    scheduleMidnightCheck();
+  }, next.getTime() - now.getTime());
+}
+
 // ---------- tray and panel ----------
 
-function updateTooltip(m?: SprintMetrics) {
-  if (!m) return tray.setToolTip('ReciPRocity');
-  const r = reviewRatio(m.reviewed.count, m.authored.count);
+/** The tray shows the tracked range's standing (never a temporary view): a coloured dot and a tooltip. */
+function updateTray() {
+  const m = lastTracked;
+  if (!m) {
+    tray.setImage(trayImage(icon, 'none'));
+    tray.setToolTip('ReciPRocity');
+    return;
+  }
+  const r = reviewRatio(m.reviewed.count, m.authored.count, superMinReviews(windowDays(m.window)));
+  tray.setImage(trayImage(icon, r.status));
   tray.setToolTip(`ReciPRocity · ratio ${r.display} · ${r.label}`);
 }
 
@@ -209,6 +323,7 @@ function hidePanel() {
 }
 
 function showPanel() {
+  checkRollover();
   const pinnedAt = prefs.pinned ? visibleBounds(prefs.pinnedBounds) : null;
   if (pinnedAt) win.setBounds(pinnedAt);
   else placeNearTray(win, tray);
@@ -256,7 +371,7 @@ function rebuildTrayMenu() {
     { label: 'Open ReciPRocity', click: showPanel },
     { label: 'Refresh', enabled: s.hasToken && !!s.settings, click: () => refresh() },
     { type: 'separator' },
-    { label: 'Change sprint…', enabled: s.hasToken, click: () => (setView('start'), showPanel()) },
+    { label: 'Change range…', enabled: s.hasToken, click: () => (setView('start'), showPanel()) },
     { label: 'Change token…', click: () => (setView('token'), showPanel()) },
     { type: 'separator' },
     { label: 'Theme', submenu: [themeItem('System', 'system'), themeItem('Light', 'light'), themeItem('Dark', 'dark')] },
@@ -291,6 +406,16 @@ function on(channel: string, fn: (event: IpcMainEvent, ...args: unknown[]) => vo
 }
 
 const str = (v: unknown, max: number) => (typeof v === 'string' && v.length <= max ? v : null);
+
+/** Runs a native dialog without the panel hiding itself (and so its dialog) when focus moves to it. */
+async function withDialog<T>(fn: () => Promise<T>): Promise<T> {
+  dialogOpen = true;
+  try {
+    return await fn();
+  } finally {
+    dialogOpen = false;
+  }
+}
 const isView = (v: unknown): v is View => v === 'token' || v === 'start' || v === 'metrics';
 const isTheme = (v: unknown): v is Theme => v === 'system' || v === 'light' || v === 'dark';
 
@@ -327,21 +452,22 @@ function registerIpc() {
     await clearToken();
     viewerLogin = null;
     ownerTypes.clear();
+    lastTracked = null;
+    updateTray();
     setView('token');
   });
 
-  handle(IPC.start, async (_e, raw): Promise<ActionResult> => {
+  handle(IPC.start, async (_e, raw): Promise<StartResult> => {
     if (typeof raw !== 'object' || raw === null) return { ok: false, error: 'Invalid request.' };
     const r = raw as Record<string, unknown>;
     const owner = str(r.owner, MAX_LOGIN_LENGTH)?.trim() ?? '';
     const login = str(r.login, MAX_LOGIN_LENGTH)?.trim() ?? '';
-    const from = str(r.from, 10) ?? '';
-    const to = str(r.to, 10) ?? '';
     const labelsInput = str(r.ignoreLabels, 1000);
+    const choice = r.historyChoice === 'archive' || r.historyChoice === 'delete' ? r.historyChoice : null;
     if (!isValidLogin(owner)) return { ok: false, error: 'Enter a valid GitHub username or organization for "Where".' };
     if (!isValidLogin(login)) return { ok: false, error: 'Enter a valid GitHub username.' };
-    const w = parseWindow(from, to);
-    if ('error' in w) return { ok: false, error: w.error };
+    const range = validRange({ kind: str(r.kind, 20), start: str(r.start, 10) });
+    if (!range) return { ok: false, error: 'Choose a range and a valid start date.' };
     const labels = parseLabels(labelsInput ?? '');
     if (!Array.isArray(labels)) return { ok: false, error: labels.error };
 
@@ -352,11 +478,75 @@ function registerIpc() {
     } catch (err) {
       return { ok: false, error: safeError(err) };
     }
-    const settings: SprintSettings = { owner, login, from: w.from, to: w.to, ignoreLabels: labels };
+    const settings: SprintSettings = { owner, login, range, ignoreLabels: labels };
+    // A new owner, person, range or start date with history behind it: ask before archiving or deleting it.
+    const pending = historyReadOnly ? null : needsChoice(history, settings);
+    if (pending && !choice) return { ok: false, historyChoice: pending };
+    updateHistory(switchSeries(history, settings, choice ?? 'archive', new Date().toISOString()));
+    cancelRefresh(); // anything running belongs to the old settings
     updatePrefs({ settings });
+    viewing = TRACKED;
+    lastTracked = null;
+    updateTray();
     setView('metrics');
     refresh(true);
     return { ok: true };
+  });
+
+  handle(IPC.setViewing, (_e, raw): ActionResult => {
+    const v = parseView(raw);
+    if ('error' in v) return { ok: false, error: v.error };
+    viewing = v;
+    pushState();
+    if (v.kind === 'tracked' && lastTracked && sameWindow(lastTracked.window, trackedWindow())) {
+      // Back to my range: show the numbers already fetched straight away; refresh only if the cooldown allows.
+      controller?.abort(); // a fetch still running for the temporary view is no longer wanted
+      send(IPC.result, { ok: true, metrics: lastTracked });
+      refresh();
+    } else {
+      refresh(true);
+    }
+    return { ok: true };
+  });
+
+  handle(IPC.exportHistory, async (): Promise<ActionResult> => {
+    const result = await withDialog(() =>
+      dialog.showSaveDialog(win, {
+        title: 'Export review history',
+        defaultPath: join(app.getPath('documents'), `reciprocity-history-${today()}.csv`),
+        filters: [{ name: 'CSV', extensions: ['csv'] }],
+      }),
+    );
+    if (result.canceled || !result.filePath) return { ok: true };
+    try {
+      exportHistory(history, result.filePath);
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "The history couldn't be saved there. Try another folder." };
+    }
+  });
+
+  handle(IPC.clearHistory, async () => {
+    if (historyReadOnly) return;
+    const { response } = await withDialog(() =>
+      dialog.showMessageBox(win, {
+        type: 'warning',
+        buttons: ['Clear history', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        message: 'Clear all review history?',
+        detail: "This deletes every recorded period from this computer, including archived ones. It can't be undone: export it first to keep a copy.",
+      }),
+    );
+    if (response !== 0) return;
+    let next: History = EMPTY_HISTORY;
+    if (lastTracked && prefs.settings) {
+      // Start the current period again from the numbers on screen.
+      const counts = { authored: lastTracked.authored.count, reviewed: lastTracked.reviewed.count };
+      next = recordPeriod(next, prefs.settings, { ...lastTracked.window, ...counts, final: false }, new Date().toISOString());
+    }
+    updateHistory(next);
+    pushState();
   });
 
   on(IPC.showView, (_e, v) => {
@@ -394,15 +584,21 @@ async function start() {
   await initToken();
   registerIpc();
 
-  const icon = loadIcon(appDir);
+  icon = loadIcon(appDir);
   tray = createTray(icon);
-  updateTooltip();
+  updateTray();
   tray.on('click', togglePanel);
+  scheduleMidnightCheck();
+  // Timers can fire late after sleep: check for a new period as soon as the computer wakes.
+  powerMonitor.on('resume', () => {
+    scheduleMidnightCheck();
+    checkRollover();
+  });
 
   win = createPanel(join(distDir, 'preload.cjs'), icon);
   win.setAlwaysOnTop(prefs.pinned, 'floating');
   win.on('blur', () => {
-    if (!prefs.pinned) hidePanel();
+    if (!prefs.pinned && !dialogOpen) hidePanel();
   });
   win.on('moved', () => {
     if (prefs.pinned) updatePrefs({ pinnedBounds: win.getBounds() });

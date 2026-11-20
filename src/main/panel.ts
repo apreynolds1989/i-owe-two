@@ -3,6 +3,8 @@
 // always on top and draggable.
 import { app, BrowserWindow, nativeImage, screen, Tray, type NativeImage } from 'electron';
 import { join } from 'node:path';
+import type { RatioStatus } from '../shared/ratio';
+import { DOT_COLORS, paintDot } from './dot';
 import { overlaps, panelPosition } from './placement';
 import type { Bounds } from './prefs';
 import { hardenWebContents, INDEX_URL } from './security';
@@ -14,7 +16,23 @@ export function loadIcon(appDir: string): NativeImage {
 }
 
 export function createTray(icon: NativeImage): Tray {
-  return new Tray(icon.resize({ width: 16, height: 16, quality: 'best' }));
+  return new Tray(trayImage(icon, 'none'));
+}
+
+/**
+ * The tray icon at 16 px (1x) and 32 px (2x), with a dot in the corner showing the ratio's status.
+ * 'none' (no numbers yet, or nothing authored) is the plain icon.
+ */
+export function trayImage(icon: NativeImage, status: RatioStatus): NativeImage {
+  const image = nativeImage.createEmpty();
+  for (const scaleFactor of [1, 2]) {
+    const size = 16 * scaleFactor;
+    const base = icon.resize({ width: size, height: size, quality: 'best' });
+    const pixels = status === 'none' ? base.toBitmap() : Buffer.from(paintDot(base.toBitmap(), size, DOT_COLORS[status]));
+    const png = nativeImage.createFromBitmap(pixels, { width: size, height: size }).toPNG();
+    image.addRepresentation({ scaleFactor, width: size, height: size, buffer: png });
+  }
+  return image;
 }
 
 export function createPanel(preload: string, icon: NativeImage): BrowserWindow {

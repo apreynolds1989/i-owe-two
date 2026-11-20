@@ -28,7 +28,9 @@ ReciPRocity is designed so that the worst realistic outcome of anything going wr
 - **Gentle on your account.**
   - Manual refresh is limited to once per 30 seconds, and a refresh that's already running is reused.
   - New settings or a new token trigger a refresh at most every 5 seconds.
-  - Requests are spaced out, there's no automatic refresh, and paging stops at GitHub's 1,000-result cap.
+  - Requests are spaced out, and paging stops at GitHub's 1,000-result cap.
+  - The only automatic fetch is when your range rolls over to a new period: just after local midnight, on waking from sleep, or on opening the panel, the app locks in the period that ended (two searches) and fetches the new one. There's no other polling.
+  - Custom dates in **Viewing** are limited to 92 days. Only a tracked Year range searches a longer window (up to 366 days).
   - If GitHub ever reports a rate limit, the app sends nothing at all until GitHub's reset time, and waits at least a minute.
   - Changing settings or removing the token cancels any request still running for the old ones.
 
@@ -62,7 +64,8 @@ The UI is built with Electron and follows Electron's [security checklist](https:
   The fuses also enable integrity checks on the archive. DevTools and the default application menu (with shortcuts such as reload) are disabled in the installed app.
 - **Running from the repo (`npm start`)** uses the stock Electron binary, so there are no fuses. The start script strips `NODE_OPTIONS`, `ELECTRON_RUN_AS_NODE` and the TLS overrides before launching, so an IDE terminal can't attach a debugger to the process holding the token. If you're not a developer, use the installed app.
 - **Nothing else running.**
-  - Writes only `prefs.json` (your last inputs and theme) and `token.bin` to its own data folder.
+  - Writes only `prefs.json` (your settings and theme), `token.bin` and `history.json` to its own data folder. History holds counts only (dates, PRs authored and reviewed), never PR titles or links. All three are deleted on uninstall.
+  - **Export history…** writes a CSV only where you choose in the save dialog. The dialog and the file write happen in the main process; the window never touches your files.
   - Runs no shell commands.
   - Has no auto-update, telemetry, analytics or crash reporting.
   - Talks to no server except `api.github.com`.

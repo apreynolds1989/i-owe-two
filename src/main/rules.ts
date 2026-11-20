@@ -1,8 +1,11 @@
 // The counting rules and search-query building, kept free of network and Electron code so
 // scripts/check.ts can test them.
 import type { SprintWindow } from '../shared/args';
+import { shiftDay } from '../shared/range';
 import { isValidLogin } from '../shared/validate';
 import { actorIsBot, actorLogin, type Actor } from './github';
+
+export { shiftDay };
 
 export interface ReviewNode {
   state: string; // APPROVED | CHANGES_REQUESTED | COMMENTED | DISMISSED | PENDING
@@ -20,10 +23,6 @@ export function makeLocalDate(timeZone: string): ToLocalDate {
 }
 
 export const inWindow = (day: string, w: SprintWindow) => day >= w.from && day <= w.to;
-
-/** Shift a YYYY-MM-DD date by whole days (UTC arithmetic, so no DST surprises). */
-export const shiftDay = (ymd: string, days: number) =>
-  new Date(Date.parse(`${ymd}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
 
 /** A review that was actually submitted. PENDING is an unsent draft and only visible to its author anyway. */
 const submitted = (r: ReviewNode) => r.state !== 'PENDING' && !!r.submittedAt;
@@ -52,10 +51,11 @@ export interface SearchQueries {
   authored: string;
   reviewed: string;
   open: string;
+  waiting: string;
 }
 
 /**
- * The three search strings. Every piece is validated first: owner and login can only contain
+ * The four search strings. Every piece is validated first: owner and login can only contain
  * letters, digits and hyphens, and dates are strict YYYY-MM-DD, so nothing typed into the app can
  * add qualifiers or widen what is searched. Throws on anything invalid (the UI validates earlier).
  */
@@ -69,5 +69,7 @@ export function buildSearchQueries(ownerType: 'User' | 'Organization', owner: st
     // Submitting a review bumps updatedAt, so every PR reviewed in the window was updated on or after its start.
     reviewed: `${scope} is:pr reviewed-by:${login} -author:${login} updated:>=${shiftDay(w.from, -1)}`,
     open: `${scope} is:pr is:open draft:false`,
+    // Only pending requests: GitHub removes a review request once that person reviews.
+    waiting: `${scope} is:pr is:open draft:false review-requested:${login}`,
   };
 }

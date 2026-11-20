@@ -107,6 +107,24 @@ export const ReviewersIcon = () => (
   </Icon>
 );
 
+/** Waiting on you: an hourglass. */
+export const WaitingIcon = () => (
+  <Icon size={20}>
+    <path d="M7 3h10M7 21h10" />
+    <path d="M8 3v3a4 4 0 0 0 1.6 3.2L12 11l2.4-1.8A4 4 0 0 0 16 6V3" />
+    <path d="M8 21v-3a4 4 0 0 1 1.6-3.2L12 13l2.4 1.8A4 4 0 0 1 16 18v3" />
+  </Icon>
+);
+
+/** History: a clock with a backwards arrow. */
+export const HistoryIcon = () => (
+  <Icon size={20}>
+    <path d="M3.5 12a8.5 8.5 0 1 0 2.5-6" />
+    <path d="M3 4v4h4" />
+    <path d="M12 8v4l3 2" />
+  </Icon>
+);
+
 export const KeyIcon = () => (
   <Icon size={20}>
     <circle cx="8" cy="15" r="4" />
