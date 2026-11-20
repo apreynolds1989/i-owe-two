@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { RANGE_LABELS, sameWindow } from '../shared/range';
+import { useClickOutside } from './hooks';
 import type { AppState, SprintMetrics } from '../shared/types';
 import titleDark from '../../assets/title-dark.png';
 import titleLight from '../../assets/title-light.png';
@@ -10,6 +11,7 @@ import {
   ReviewIcon, SunIcon, WaitingIcon,
 } from './icons';
 import { MetricCard } from './MetricCard';
+import { NeedsReviewersList } from './NeedsReviewersList';
 import { RatioCard } from './RatioCard';
 import { StartForm } from './StartForm';
 import { NEXT_THEME, THEME_LABEL } from './theme';
@@ -77,15 +79,7 @@ export function App() {
     return () => offs.forEach((off) => off());
   }, []);
 
-  // Close the ⋯ menu on any click outside it.
-  useEffect(() => {
-    if (!menuOpen) return;
-    const close = (e: MouseEvent) => {
-      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
-    };
-    window.addEventListener('mousedown', close);
-    return () => window.removeEventListener('mousedown', close);
-  }, [menuOpen]);
+  useClickOutside(menuRef, menuOpen, () => setMenuOpen(false));
 
   const cooldown = useCooldown(state?.refreshAvailableAt ?? 0);
   if (!state) return <div className="panel" />;
@@ -217,6 +211,11 @@ export function App() {
                   showReviewers={key === 'needsReviewers' || key === 'waitingOnYou'}
                   expanded={open === key}
                   onToggle={() => setOpen(open === key ? null : key)}
+                  children={
+                    key === 'needsReviewers' && current ? (
+                      <NeedsReviewersList prs={current.needsReviewers.prs} view={state.prView} />
+                    ) : undefined
+                  }
                 />
               ))}
               <HistoryCard history={state.history} current={state.trackedWindow} />

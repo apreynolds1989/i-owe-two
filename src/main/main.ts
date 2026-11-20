@@ -11,6 +11,7 @@ import type { SprintWindow } from '../shared/args';
 import {
   EMPTY_HISTORY, historyView, needsChoice, pendingFinalize, recordPeriod, switchSeries, type History,
 } from '../shared/history';
+import { parsePrView } from '../shared/prView';
 import { periodContaining, parseView, sameWindow, TRACKED, validRange, viewWindow, windowDays, type ViewRange } from '../shared/range';
 import { reviewRatio, superMinReviews } from '../shared/ratio';
 import {
@@ -110,6 +111,7 @@ function state(): AppState {
     openAtLogin: app.isPackaged && app.getLoginItemSettings().openAtLogin,
     canOpenAtLogin: app.isPackaged,
     refreshAvailableAt,
+    prView: prefs.prView,
   };
 }
 
@@ -561,6 +563,13 @@ function registerIpc() {
   });
   on(IPC.setOpenAtLogin, (_e, o) => {
     if (typeof o === 'boolean') setOpenAtLogin(o);
+  });
+  on(IPC.setPrView, (_e, v) => {
+    const prView = parsePrView(v);
+    if (prView) {
+      updatePrefs({ prView });
+      pushState();
+    }
   });
   on(IPC.openExternal, (_e, url) => {
     const u = str(url, 2000);

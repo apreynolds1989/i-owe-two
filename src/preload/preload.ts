@@ -25,6 +25,7 @@ const bridge: SprintBridge = {
   setTheme: (theme) => ipcRenderer.send(IPC.setTheme, theme),
   setPinned: (pinned) => ipcRenderer.send(IPC.setPinned, pinned),
   setOpenAtLogin: (open) => ipcRenderer.send(IPC.setOpenAtLogin, open),
+  setPrView: (view) => ipcRenderer.send(IPC.setPrView, view),
   openExternal: (url) => ipcRenderer.send(IPC.openExternal, url),
   hide: () => ipcRenderer.send(IPC.hide),
   quit: () => ipcRenderer.send(IPC.quit),
