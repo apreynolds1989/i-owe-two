@@ -31,7 +31,14 @@ export interface PrSummary {
   reviewerCount?: number;
   /** Label names as written on GitHub. Only set for the "Need reviewers" list (it can be filtered). */
   labels?: string[];
+  /** Which "Waiting on you" section the PR is in. Only set for that list. */
+  section?: 'requested' | 'involved';
+  /** This person's standing review on the PR, if any. Only set for the "Waiting on you" list. */
+  myReview?: MyReview;
 }
+
+/** Someone's standing review on a PR (see myReviewState in src/main/rules.ts). */
+export type MyReview = 'approved' | 'changes_requested' | 'commented' | 'dismissed';
 
 /** How the "Need reviewers" list is shown. Remembered in prefs.json; see src/shared/prView.ts. */
 export interface PrListView {
@@ -61,7 +68,10 @@ export interface SprintMetrics {
   authored: Metric;
   reviewed: Metric;
   needsReviewers: Metric;
-  /** Open PRs where this person's review is requested and still pending. */
+  /**
+   * Open PRs on this person's plate: review requested and still pending (section 'requested'), or
+   * reviewed with comments or changes requested and not approved since (section 'involved').
+   */
   waitingOnYou: Metric;
 }
 

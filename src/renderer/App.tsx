@@ -12,6 +12,7 @@ import {
 } from './icons';
 import { MetricCard } from './MetricCard';
 import { NeedsReviewersList } from './NeedsReviewersList';
+import { waitingNote, WaitingList } from './WaitingList';
 import { RatioCard } from './RatioCard';
 import { StartForm } from './StartForm';
 import { NEXT_THEME, THEME_LABEL } from './theme';
@@ -27,13 +28,13 @@ const CARDS = [
     key: 'waitingOnYou',
     label: 'Waiting on you',
     icon: <WaitingIcon />,
-    hint: 'Open, ready PRs where your review is requested and still pending, right now (GitHub drops a request once you review; team requests can show here too)',
+    hint: 'Open, ready PRs on your plate right now. Requested: your review (or your team’s) is requested and pending. Involved: you commented or requested changes and haven’t approved since.',
   },
   {
     key: 'needsReviewers',
     label: 'Need reviewers',
     icon: <ReviewersIcon />,
-    hint: 'Open, ready PRs with fewer than 2 reviewers (whole organization or account, right now)',
+    hint: 'Open, ready PRs with fewer than 2 reviewers that you haven’t reviewed yet (whole organization or account, right now)',
   },
 ] as const;
 const clock = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
@@ -211,9 +212,12 @@ export function App() {
                   showReviewers={key === 'needsReviewers' || key === 'waitingOnYou'}
                   expanded={open === key}
                   onToggle={() => setOpen(open === key ? null : key)}
+                  note={key === 'waitingOnYou' && current ? waitingNote(current.waitingOnYou.prs) : undefined}
                   children={
-                    key === 'needsReviewers' && current ? (
+                    !current ? undefined : key === 'needsReviewers' ? (
                       <NeedsReviewersList prs={current.needsReviewers.prs} view={state.prView} />
+                    ) : key === 'waitingOnYou' ? (
+                      <WaitingList prs={current.waitingOnYou.prs} />
                     ) : undefined
                   }
                 />

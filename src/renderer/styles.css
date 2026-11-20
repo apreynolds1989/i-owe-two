@@ -601,6 +601,10 @@ select {
   font-size: 11px;
 }
 
+.nowrap {
+  white-space: nowrap;
+}
+
 /* ---------- need-reviewers view: toolbar, label filter, repo groups ---------- */
 
 /* Indented like .pr-list, so the toolbar lines up under the card's label. */
@@ -729,6 +733,35 @@ select {
 
 .pr-group .pr-list {
   padding-left: 22px;
+}
+
+/* ---------- waiting-on-you sections and status tags ---------- */
+
+.pr-section + .pr-section {
+  margin-top: 6px;
+}
+
+/* Status pill at the start of a PR's details line. Both tones are contrast-checked in scripts/check.ts. */
+.pr-tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 16px;
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+
+.pr-tag.neutral {
+  background: color-mix(in srgb, var(--muted) 16%, transparent);
+  color: var(--text);
+}
+
+.pr-tag.warn {
+  background: var(--warn-bg);
+  color: var(--warn);
 }
 
 /* ---------- token and start screens ---------- */

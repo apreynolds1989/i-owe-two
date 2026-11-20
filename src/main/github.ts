@@ -28,7 +28,8 @@ export const actorIsBot = (a: Actor | null) => !!a && (a.__typename === 'Bot' ||
 export const QUERIES = Object.freeze({
   viewer: /* GraphQL */ `query Viewer { viewer { login } }`,
   owner: /* GraphQL */ `query Owner($login: String!) { repositoryOwner(login: $login) { __typename login } }`,
-  // reviews(first: 100) is far above any real PR's review count; labels(first: 20) likewise.
+  // reviews(last: 100) is far above any real PR's review count, and on a PR with more it keeps the most
+  // recent ones, which is what someone's standing review depends on. labels(first: 20) likewise.
   search: /* GraphQL */ `query Search($q: String!, $after: String) {
     search(query: $q, type: ISSUE, first: 50, after: $after) {
       issueCount
@@ -42,7 +43,7 @@ export const QUERIES = Object.freeze({
           repository { nameWithOwner }
           author { login __typename }
           labels(first: 20) { nodes { name } }
-          reviews(first: 100) { nodes { state submittedAt author { login __typename } } }
+          reviews(last: 100) { nodes { state submittedAt author { login __typename } } }
         }
       }
     }

@@ -3,8 +3,8 @@ import type { SprintWindow } from '../shared/args';
 import type { Metric, PrSummary, SprintMetrics, SprintSettings } from '../shared/types';
 import { actorIsBot, actorLogin, CancelledError, GitHubError, graphql, QUERIES, type Actor } from './github';
 import {
-  buildSearchQueries, hasIgnoredLabel, humanReviewers, inWindow, makeLocalDate, REVIEWERS_NEEDED,
-  reviewedInWindow, type ReviewNode, type SearchQueries,
+  buildSearchQueries, hasIgnoredLabel, hasReviewed, humanReviewers, inWindow, makeLocalDate, myReviewState, REVIEWERS_NEEDED,
+  reviewedInWindow, splitWaiting, type ReviewNode, type SearchQueries,
 } from './rules';
 
 interface PrNode {
@@ -76,11 +76,12 @@ const summary = (n: PrNode, extra: Partial<PrSummary> = {}): PrSummary => ({
   ...extra,
 });
 
-const metric = (prs: PrSummary[], search: { total: number }): Metric => ({
+/** A list built from one or more searches: capped if any of them hit GitHub's 1,000-result limit. */
+const metric = (prs: PrSummary[], ...searches: Array<{ total: number }>): Metric => ({
   count: prs.length,
   prs,
-  capped: search.total > MAX_PAGES * 50,
-  searchTotal: search.total,
+  capped: searches.some((s) => s.total > MAX_PAGES * 50),
+  searchTotal: searches.reduce((sum, s) => sum + s.total, 0),
 });
 
 const newestFirst = (a: PrNode, b: PrNode) => b.createdAt.localeCompare(a.createdAt);
@@ -101,7 +102,7 @@ async function authoredAndReviewed(token: string, settings: SprintSettings, w: S
   return { authored, authoredRaw, reviewed, reviewedRaw };
 }
 
-/** Just the two counts, for locking in a period that has ended (two searches instead of four). */
+/** Just the two counts, for locking in a period that has ended (two searches instead of five). */
 export async function getPeriodCounts(
   token: string,
   settings: SprintSettings,
@@ -131,16 +132,26 @@ export async function getSprintMetrics(
   const openRaw = await searchPrs(token, q.open, signal);
   await pause(signal);
   const waitingRaw = await searchPrs(token, q.waiting, signal);
+  await pause(signal);
+  const involvedRaw = await searchPrs(token, q.involved, signal);
 
+  // A PR this person has already reviewed (any state) is no longer one they could pick up: it's either
+  // done (approved) or under "Waiting on you". PRs merely requested from them stay here as well.
   const needsReviewers = withReviewers(
     openRaw.nodes
       .filter((n) => !actorIsBot(n.author))
-      .filter((n) => !hasIgnoredLabel(n.labels.nodes.map((l) => l.name), settings.ignoreLabels)),
+      .filter((n) => !hasIgnoredLabel(n.labels.nodes.map((l) => l.name), settings.ignoreLabels))
+      .filter((n) => !hasReviewed(settings.login, n.reviews.nodes)),
   )
     .filter(({ reviewers }) => reviewers < REVIEWERS_NEEDED)
     .map(({ n, reviewers }) => summary(n, { reviewerCount: reviewers, labels: n.labels.nodes.map((l) => l.name) }));
 
-  const waitingOnYou = withReviewers(waitingRaw.nodes).map(({ n, reviewers }) => summary(n, { reviewerCount: reviewers }));
+  const split = splitWaiting(waitingRaw.nodes, involvedRaw.nodes, settings.login);
+  const waiting = (nodes: PrNode[], section: 'requested' | 'involved') =>
+    withReviewers(nodes).map(({ n, reviewers }) =>
+      summary(n, { reviewerCount: reviewers, section, myReview: myReviewState(settings.login, n.reviews.nodes) ?? undefined }),
+    );
+  const waitingOnYou = [...waiting(split.requested, 'requested'), ...waiting(split.involved, 'involved')];
 
   return {
     settings,
@@ -151,6 +162,6 @@ export async function getSprintMetrics(
     authored: metric(r.authored.map((n) => summary(n)), r.authoredRaw),
     reviewed: metric(r.reviewed.map((n) => summary(n)), r.reviewedRaw),
     needsReviewers: metric(needsReviewers, openRaw),
-    waitingOnYou: metric(waitingOnYou, waitingRaw),
+    waitingOnYou: metric(waitingOnYou, waitingRaw, involvedRaw),
   };
 }
