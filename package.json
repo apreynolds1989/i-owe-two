@@ -1,7 +1,7 @@
 {
   "name": "reciprocity",
   "productName": "ReciPRocity",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -13,7 +13,7 @@
   "scripts": {
     "start": "tsx scripts/dev.ts",
     "build": "tsx scripts/dev.ts --build-only",
-    "dist": "tsx scripts/dev.ts --build-only && electron-builder",
+    "dist": "tsx scripts/dev.ts --build-only --clean-release && electron-builder",
     "check": "tsx scripts/check.ts",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json",
     "audit": "npm audit --audit-level=moderate",

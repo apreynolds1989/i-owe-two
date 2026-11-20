@@ -19,7 +19,8 @@ import { allowedGitHubLink, checkToken, isValidLogin, MAX_LOGIN_LENGTH, parseLab
 import { assertReadOnlyQuery, ENDPOINT, GitHubError, graphql, QUERIES, setTransport, type Actor } from '../src/main/github';
 import { panelPosition } from '../src/main/placement';
 import {
-  buildSearchQueries, hasIgnoredLabel, humanReviewers, makeLocalDate, reviewedInWindow, shiftDay, type ReviewNode,
+  buildSearchQueries, hasIgnoredLabel, hasReviewed, humanReviewers, makeLocalDate, myReviewState, reviewedInWindow, shiftDay,
+  splitWaiting, type ReviewNode,
 } from '../src/main/rules';
 
 let failures = 0;
@@ -81,6 +82,41 @@ expect(humanReviewers('carol', [review(bot('copilot'), 'COMMENTED'), review(user
 expect(humanReviewers('carol', [review(user('a'), 'PENDING', null), review(user('b'), 'APPROVED')]).length === 1, 'a pending review does not count');
 expect(humanReviewers('carol', [review(user('a'), 'DISMISSED'), review(user('b'), 'CHANGES_REQUESTED')]).length === 2, 'any submitted state counts toward the two');
 expect(hasIgnoredLabel(['Do Not Review'], ['do not review']) && !hasIgnoredLabel(['bug'], ['do not review']), 'ignore-labels match case-insensitively');
+
+section('Your standing review on a PR');
+const at = (day: number) => `2026-11-${String(day).padStart(2, '0')}T12:00:00Z`;
+const mine = (state: string, day: number) => review(user('alice'), state, at(day));
+expect(myReviewState('alice', []) === null, 'no reviews: none');
+expect(myReviewState('alice', [review(user('bob'), 'APPROVED')]) === null, "someone else's approval isn't yours");
+expect(myReviewState('alice', [mine('COMMENTED', 10)]) === 'commented', 'only comments: commented');
+expect(myReviewState('alice', [mine('CHANGES_REQUESTED', 10)]) === 'changes_requested', 'changes requested');
+expect(myReviewState('alice', [mine('APPROVED', 10), mine('COMMENTED', 11)]) === 'approved', 'a comment after approving keeps the approval (as GitHub shows it)');
+expect(myReviewState('alice', [mine('CHANGES_REQUESTED', 10), mine('APPROVED', 11)]) === 'approved', 'approving after requesting changes: approved');
+expect(myReviewState('alice', [mine('APPROVED', 10), mine('CHANGES_REQUESTED', 11)]) === 'changes_requested', 'requesting changes after approving: changes requested');
+// Out of order on purpose: the latest by submittedAt wins, not the latest in the list.
+expect(myReviewState('alice', [mine('APPROVED', 12), mine('CHANGES_REQUESTED', 11)]) === 'approved', 'order follows submission time, not list order');
+expect(myReviewState('alice', [mine('DISMISSED', 10)]) === 'dismissed', 'a dismissed review: dismissed');
+expect(myReviewState('alice', [mine('DISMISSED', 10), mine('COMMENTED', 11)]) === 'dismissed', 'a comment after a dismissal stays dismissed');
+expect(myReviewState('alice', [review(user('alice'), 'PENDING', null)]) === null, 'an unsent (PENDING) review is ignored');
+expect(myReviewState('alice', [review(user('ALICE'), 'COMMENTED')]) === 'commented', 'logins match case-insensitively');
+expect(hasReviewed('alice', [mine('COMMENTED', 10)]) && !hasReviewed('alice', [review(user('bob'), 'APPROVED')]), 'any submitted review takes a PR out of Need reviewers');
+
+section('Waiting on you: Requested and Involved');
+const node = (n: number, reviews: ReviewNode[] = []) => ({ url: `https://github.com/o/r/pull/${n}`, reviews: { nodes: reviews } });
+const ids = (list: Array<{ url: string }>) => list.map((x) => x.url.split('/').pop()).join(',');
+const requestedNodes = [node(1), node(2, [mine('APPROVED', 10)])]; // #2: approved, then re-requested
+const reviewedNodes = [
+  node(2, [mine('APPROVED', 10)]),
+  node(3, [mine('COMMENTED', 10)]),
+  node(4, [mine('CHANGES_REQUESTED', 10)]),
+  node(5, [mine('APPROVED', 10)]),
+  node(6, [mine('DISMISSED', 10)]),
+  node(7, [mine('APPROVED', 10), mine('COMMENTED', 11)]),
+];
+const split = splitWaiting(requestedNodes, reviewedNodes, 'alice');
+expect(ids(split.requested) === '1,2', 'Requested keeps every pending request, including a re-request after approving');
+expect(ids(split.involved) === '3,4,6', 'Involved: commented, changes requested and dismissed; approved PRs are dropped');
+expect(!split.involved.some((x) => split.requested.some((r) => r.url === x.url)), 'a PR is never in both sections (Requested wins)');
 
 section('Review ratio');
 // A week's worth of reviews needed for super, unless a test says otherwise.
@@ -277,6 +313,7 @@ expect(q.authored === 'org:octo-org is:pr author:alice created:2026-11-09..2026-
 expect(q.reviewed === 'org:octo-org is:pr reviewed-by:alice -author:alice updated:>=2026-11-09', 'reviewed query');
 expect(q.open === 'org:octo-org is:pr is:open draft:false', 'open-PR query');
 expect(q.waiting === 'org:octo-org is:pr is:open draft:false review-requested:alice', 'waiting-on-you query');
+expect(q.involved === 'org:octo-org is:pr is:open draft:false reviewed-by:alice -author:alice', 'involved query');
 expect(buildSearchQueries('User', 'alice', 'alice', w).open.startsWith('user:alice '), 'user scope uses user:');
 expect(throws(() => buildSearchQueries('Organization', 'octo-org repo:victim/x', 'alice', w)), 'an injected owner is refused');
 expect(throws(() => buildSearchQueries('Organization', 'octo-org', 'alice OR is:open', w)), 'an injected login is refused');
@@ -457,6 +494,8 @@ for (const [name, t] of [
     ['ratio green', rgb(t.good!), rgb(t['good-bg']!)],
     ['ratio orange', rgb(t.warn!), rgb(t['warn-bg']!)],
     ['ratio red', rgb(t.bad!), rgb(t['bad-bg']!)],
+    ['neutral status tag on card', rgb(t.text!), tint(t.muted!, 0.16, t.card!)],
+    ['warning status tag', rgb(t.warn!), rgb(t['warn-bg']!)],
   ];
   for (const [label, fg, bg] of pairs) {
     const c = contrast(fg, bg);

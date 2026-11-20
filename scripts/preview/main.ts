@@ -65,8 +65,24 @@ const metrics = (authored: number, reviewed: number): SprintMetrics => ({
   authored: metric(authored),
   reviewed: metric(reviewed),
   needsReviewers: metric(5, needsReviewers),
-  waitingOnYou: metric(1, [pr(97, 'Retry webhooks with backoff', 'octo-org/api', { reviewerCount: 1, author: 'erin' })]),
+  waitingOnYou: metric(5, waitingOnYou),
 });
+// One of each kind: a fresh request, a re-request after approving, and the three Involved states.
+const waitingOnYou: PrSummary[] = [
+  pr(97, 'Retry webhooks with backoff', 'octo-org/api', { reviewerCount: 1, author: 'erin', createdAt: '2026-11-13T10:00:00Z', section: 'requested' }),
+  pr(102, 'Cache the org member list', 'octo-org/api', {
+    reviewerCount: 2, author: 'frank', createdAt: '2026-11-16T10:00:00Z', section: 'requested', myReview: 'approved',
+  }),
+  pr(76, 'Split the settings form into steps', 'octo-org/web-app', {
+    reviewerCount: 1, author: 'grace', createdAt: '2026-11-06T10:00:00Z', section: 'involved', myReview: 'changes_requested',
+  }),
+  pr(84, 'Add retries to the deploy script', 'octo-org/infra', {
+    reviewerCount: 2, author: 'heidi', createdAt: '2026-11-10T10:00:00Z', section: 'involved', myReview: 'commented',
+  }),
+  pr(90, 'Rename the billing events', 'octo-org/api', {
+    reviewerCount: 1, author: 'ivan', createdAt: '2026-11-15T10:00:00Z', section: 'involved', myReview: 'dismissed',
+  }),
+];
 const waiting = (n: number, title: string, repo: string, createdAt: string, labels: string[], reviewerCount: number, author: string) =>
   pr(n, title, repo, { createdAt, labels, reviewerCount, author });
 const needsReviewers = [
@@ -82,7 +98,8 @@ interface Scenario {
   name: string;
   state: AppState;
   metrics?: SprintMetrics;
-  expand?: boolean;
+  /** Expand a card's PR list: the Need reviewers card, or Waiting on you (scrolled into view). */
+  expand?: 'needsReviewers' | 'waitingOnYou';
   /** Open the History card (and its archived list) and scroll down to it. */
   history?: boolean;
 }
@@ -102,16 +119,17 @@ const scenarios: Scenario[] = [
     state: { ...baseState, viewing: { kind: 'lastDays', days: 14 }, window: { from: '2026-11-07', to: '2026-11-20' } },
     metrics: { ...metrics(9, 20), window: { from: '2026-11-07', to: '2026-11-20' } },
   },
-  { name: 'metrics-expanded', state: baseState, metrics: metrics(5, 12), expand: true },
+  { name: 'metrics-expanded', state: baseState, metrics: metrics(5, 12), expand: 'needsReviewers' },
+  { name: 'metrics-waiting', state: baseState, metrics: metrics(5, 12), expand: 'waitingOnYou' },
   {
     name: 'metrics-history',
     state: { ...baseState, history: { active, archived: [archivedSeries], readOnly: false } },
     metrics: metrics(5, 12),
     history: true,
   },
-  { name: 'metrics-grouped', state: view({ groupByRepo: true }), metrics: metrics(5, 12), expand: true },
-  { name: 'metrics-filtered', state: view({ groupByRepo: true, sort: 'newest', labels: ['frontend'] }), metrics: metrics(5, 12), expand: true },
-  { name: 'metrics-filter-empty', state: view({ labels: ['security'] }), metrics: metrics(5, 12), expand: true },
+  { name: 'metrics-grouped', state: view({ groupByRepo: true }), metrics: metrics(5, 12), expand: 'needsReviewers' },
+  { name: 'metrics-filtered', state: view({ groupByRepo: true, sort: 'newest', labels: ['frontend'] }), metrics: metrics(5, 12), expand: 'needsReviewers' },
+  { name: 'metrics-filter-empty', state: view({ labels: ['security'] }), metrics: metrics(5, 12), expand: 'needsReviewers' },
 ];
 
 let current: Scenario = scenarios[0]!;
@@ -138,7 +156,13 @@ void app.whenReady().then(async () => {
       await win.loadURL(INDEX_URL);
       await new Promise((r) => setTimeout(r, 400)); // the fake numbers arrive shortly after load
       if (s.expand) {
-        await win.webContents.executeJavaScript(`document.querySelectorAll('.metric-head')[3]?.click()`);
+        // Card order: Authored, Reviewed, Waiting on you, Need reviewers.
+        const index = s.expand === 'waitingOnYou' ? 2 : 3;
+        await win.webContents.executeJavaScript(`document.querySelectorAll('.metric-head')[${index}]?.click()`);
+        if (s.expand === 'waitingOnYou') {
+          await new Promise((r) => setTimeout(r, 50));
+          await win.webContents.executeJavaScript(`document.querySelector('.metric-card.expanded')?.scrollIntoView({ block: 'start' })`);
+        }
       }
       if (s.history) {
         await win.webContents.executeJavaScript(`document.querySelector('.history-card .metric-head')?.click()`);

@@ -13,8 +13,11 @@ A small tray app (like JetBrains Toolbox) that shows your GitHub pull-request nu
   - at **4.0+** with at least **30 reviews a week** it goes super-powered ✨ (scaled to the range: 5 for a day, 60 for two weeks, and so on). It's meant to be hard.
 - **Authored**: PRs you opened in the range, whatever state they're in now.
 - **Reviewed**: other people's PRs where you submitted at least one review (comment, changes requested or approval) in the range. Each PR counts once.
-- **Waiting on you**: open, ready PRs where your review is requested and still pending. GitHub drops a request once you review, and requests to a team you're on can show here too.
-- **Need reviewers**: open, ready (non-draft) PRs with fewer than 2 distinct human reviewers, longest-waiting first. This is a live count, not limited to the range, and covers every repo of the owner you pick: for an organization, that's the whole org's backlog.
+- **Waiting on you**: open, ready PRs on your plate, in two sections. A PR is only ever in one, and Requested wins.
+  - **Requested**: your review is requested and still pending. Requests to a team you're on count too. GitHub drops a request once you review; if the author re-requests you, the PR comes back here tagged *Re-requested*.
+  - **Involved**: you've reviewed it with comments or requested changes, and haven't approved since. Each PR is tagged *Commented*, *Changes requested* or *Review dismissed*. Only reviews count (including inline review comments); a plain comment on the conversation tab doesn't.
+  - Once you approve a PR it leaves both sections, unless you're re-requested. A comment after approving doesn't undo the approval, the same as on GitHub.
+- **Need reviewers**: open, ready (non-draft) PRs with fewer than 2 distinct human reviewers that you haven't reviewed yet, longest-waiting first. This is a live count, not limited to the range, and covers every repo of the owner you pick: for an organization, that's the whole org's backlog.
   - Its toolbar flips the list to newest first, groups it into collapsible sections by repo, and filters it to PRs with any of the labels you pick. Your choice is remembered.
 - **History**: each period's numbers, kept on your computer as your range rolls over.
 - **Tray dot**: the tray icon shows a green, orange, red or purple dot for where your range stands, so you can check without opening the panel.

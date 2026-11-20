@@ -32,11 +32,18 @@ function useCountUp(target: number | undefined): number | undefined {
   return shown;
 }
 
+/** A small status pill shown before a PR's details, e.g. "Changes requested". */
+export interface PrTag {
+  text: string;
+  tone: 'neutral' | 'warn';
+}
+
 /**
  * One PR in a list: repo#number badge and title (opens on GitHub), optionally who opened it and its
  * reviewer count. `hideRepo` drops the repo from the badge when a group header already names it.
  */
-export function PrRow({ pr, showReviewers, hideRepo = false }: { pr: PrSummary; showReviewers: boolean; hideRepo?: boolean }) {
+export function PrRow(props: { pr: PrSummary; showReviewers: boolean; hideRepo?: boolean; tag?: PrTag }) {
+  const { pr, showReviewers, hideRepo = false, tag } = props;
   return (
     <li>
       {/* target=_blank is routed by the main process, which only opens https://github.com links. */}
@@ -48,8 +55,12 @@ export function PrRow({ pr, showReviewers, hideRepo = false }: { pr: PrSummary; 
       </a>
       {showReviewers && (
         <span className="pr-meta">
+          {tag && <span className={`pr-tag ${tag.tone}`}>{tag.text}</span>}
+          {/* Each piece stays whole, so a long line wraps between pieces, never inside "1 of 2 reviewers". */}
+          <span className="nowrap">by {pr.author}</span> ·{' '}
           {/* "opened", not "waiting": a PR that started as a draft wasn't waiting the whole time. */}
-          by {pr.author} · {openedAgo(pr.createdAt)} · {pr.reviewerCount ?? 0} of 2 reviewers
+          <span className="nowrap">{openedAgo(pr.createdAt)}</span> ·{' '}
+          <span className="nowrap">{pr.reviewerCount ?? 0} of 2 reviewers</span>
         </span>
       )}
     </li>
@@ -64,10 +75,12 @@ export function MetricCard(props: {
   showReviewers: boolean;
   expanded: boolean;
   onToggle: () => void;
-  /** Replaces the plain PR list when expanded (the "Need reviewers" card brings its own controls). */
+  /** A short line under the label, e.g. "2 requested · 3 involved". */
+  note?: string;
+  /** Replaces the plain PR list when expanded (cards with sections or controls bring their own). */
   children?: ReactNode;
 }) {
-  const { icon, label, hint, metric, showReviewers, expanded, onToggle, children } = props;
+  const { icon, label, hint, metric, showReviewers, expanded, onToggle, note, children } = props;
   const shown = useCountUp(metric?.count);
   const hasPrs = !!metric && metric.prs.length > 0;
 
@@ -77,6 +90,7 @@ export function MetricCard(props: {
         <span className="metric-icon">{icon}</span>
         <span className="metric-label">
           {label}
+          {note && <span className="metric-note">{note}</span>}
           {metric?.capped && <span className="metric-note">first 1,000 of {metric.searchTotal.toLocaleString()} searched</span>}
         </span>
         <span className="metric-count">{shown ?? '–'}</span>

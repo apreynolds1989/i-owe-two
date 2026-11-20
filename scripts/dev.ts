@@ -1,5 +1,7 @@
 // `npm start`: build the app, then launch it straight from the repo.
 // `npm run build` (and `npm run dist`, which packages afterwards): build only.
+// `--clean-release` (used by `npm run dist`) also empties release/ first. electron-builder names each
+// installer after the version and never removes old ones, so stale installers would otherwise pile up.
 // Three parts are built with Vite:
 //   renderer  src/renderer -> dist/renderer/   (the React UI, a plain web bundle)
 //   main      src/main     -> dist/main.js     (Electron main process)
@@ -15,6 +17,7 @@ import { build, type InlineConfig } from 'vite';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const src = join(root, 'src');
 const dist = join(root, 'dist');
+const release = join(root, 'release');
 
 /** Bundle one Node-side entry into dist/ as a single file, with `electron` provided by the runtime. */
 const nodeBuild = (entry: string, fileName: string, format: 'es' | 'cjs'): InlineConfig => ({
@@ -33,6 +36,7 @@ const nodeBuild = (entry: string, fileName: string, format: 'es' | 'cjs'): Inlin
 
 console.log('[reciprocity] Building...');
 rmSync(dist, { recursive: true, force: true });
+if (process.argv.includes('--clean-release')) rmSync(release, { recursive: true, force: true });
 await build({
   configFile: false,
   root: join(src, 'renderer'),
