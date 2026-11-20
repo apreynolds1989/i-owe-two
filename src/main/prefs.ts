@@ -3,6 +3,7 @@
 import { app } from 'electron';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { isPeriodKey } from '../shared/history';
 import { DEFAULT_PR_VIEW, parsePrView } from '../shared/prView';
 import { validSettings } from '../shared/settings';
 import type { PrListView, SprintSettings, Theme } from '../shared/types';
@@ -20,9 +21,15 @@ export interface Prefs {
   pinned: boolean;
   pinnedBounds: Bounds | null;
   prView: PrListView;
+  /** Opt-in, off by default: keep teammates' logins in history (see partnerExtras in src/shared/history.ts). */
+  rememberTeammates: boolean;
+  /** "from|to" of the last period whose recap was dismissed. */
+  recapSeen: string | null;
 }
 
-const DEFAULTS: Prefs = { settings: null, theme: 'system', pinned: false, pinnedBounds: null, prView: DEFAULT_PR_VIEW };
+const DEFAULTS: Prefs = {
+  settings: null, theme: 'system', pinned: false, pinnedBounds: null, prView: DEFAULT_PR_VIEW, rememberTeammates: false, recapSeen: null,
+};
 const file = () => join(app.getPath('userData'), 'prefs.json');
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
@@ -44,6 +51,8 @@ export function loadPrefs(): Prefs {
       pinned: raw.pinned === true,
       pinnedBounds: validBounds(raw.pinnedBounds),
       prView: parsePrView(raw.prView) ?? DEFAULT_PR_VIEW,
+      rememberTeammates: raw.rememberTeammates === true,
+      recapSeen: isPeriodKey(raw.recapSeen) ? raw.recapSeen : null,
     };
   } catch {
     return { ...DEFAULTS };

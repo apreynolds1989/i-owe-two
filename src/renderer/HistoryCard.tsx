@@ -1,17 +1,23 @@
 import { useState } from 'react';
 import type { SprintWindow } from '../shared/args';
-import { periodRatio, type HistoryView, type Period, type Series } from '../shared/history';
+import { periodKey, periodRatio, type HistoryView, type Period, type Series } from '../shared/history';
 import { RANGE_LABELS } from '../shared/range';
+import { periodRecap } from '../shared/recap';
 import { shortRange } from './dates';
 import { ChevronIcon, HistoryIcon } from './icons';
+import { RecapCard } from './RecapCard';
 
-/** One period: dates, counts and its ratio (judged with the super minimum for its own length). */
-function PeriodRow({ p, current }: { p: Period; current: SprintWindow | null }) {
+/**
+ * One period: dates, counts and its ratio (judged with the super minimum for its own length). A period
+ * that has ended opens its recap; the one in progress has nothing to recap yet.
+ */
+function PeriodRow({ p, series, current }: { p: Period; series: Series; current: SprintWindow | null }) {
+  const [open, setOpen] = useState(false);
   const r = periodRatio(p);
   const inProgress = !!current && p.from === current.from && p.to === current.to;
   const note = inProgress ? 'in progress' : p.final ? null : 'partial';
-  return (
-    <li className="history-row">
+  const summary = (
+    <>
       <span className="history-dates">
         <span>
           {shortRange(p.from, p.to)}
@@ -29,6 +35,15 @@ function PeriodRow({ p, current }: { p: Period; current: SprintWindow | null }) 
       <span className={`ratio-chip chip-${r.status}`} title={r.label}>
         {r.display}
       </span>
+    </>
+  );
+  if (inProgress) return <li className="history-row">{summary}</li>;
+  return (
+    <li>
+      <button className="history-row history-button" onClick={() => setOpen(!open)} aria-expanded={open} title="Show this period’s recap">
+        {summary}
+      </button>
+      {open && <RecapCard recap={periodRecap(series, p)} kind={series.kind} />}
     </li>
   );
 }
@@ -82,10 +97,10 @@ export function HistoryCard({ history, current }: { history: HistoryView; curren
               This history was saved by a newer version of ReciPRocity, so this version leaves it alone. Update the app to see it.
             </p>
           )}
-          {periods.length > 0 && (
+          {history.active && periods.length > 0 && (
             <ul className="history-list">
               {periods.map((p) => (
-                <PeriodRow key={`${p.from}|${p.to}`} p={p} current={current} />
+                <PeriodRow key={periodKey(p)} p={p} series={history.active!} current={current} />
               ))}
             </ul>
           )}
@@ -103,7 +118,7 @@ export function HistoryCard({ history, current }: { history: HistoryView; curren
                     </p>
                     <ul className="history-list">
                       {newestFirst(s).map((p) => (
-                        <PeriodRow key={`${p.from}|${p.to}`} p={p} current={null} />
+                        <PeriodRow key={periodKey(p)} p={p} series={s} current={null} />
                       ))}
                     </ul>
                   </div>

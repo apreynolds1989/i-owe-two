@@ -300,6 +300,24 @@ select {
   color: var(--bad);
 }
 
+/* The ratio card's top part is a button that opens Give & take; it looks exactly like the card. */
+.ratio-head {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ratio-head:disabled {
+  cursor: default;
+}
+
 .ratio-top {
   position: relative;
   z-index: 1;
@@ -329,13 +347,23 @@ select {
   font-size: 12.5px;
 }
 
+/* Tucked into the card's top-right padding, so it takes no room from the label. */
+.ratio-chevron {
+  position: absolute;
+  top: -8px;
+  right: -10px;
+  width: 16px;
+}
+
 .gauge {
+  display: block;
   position: relative;
   z-index: 1;
   margin-top: 12px;
 }
 
 .gauge-track {
+  display: block;
   position: relative;
   height: 8px;
   border-radius: 999px;
@@ -386,6 +414,7 @@ select {
 }
 
 .gauge-labels {
+  display: block;
   position: relative;
   height: 16px;
   margin-top: 4px;
@@ -437,6 +466,11 @@ select {
   pointer-events: none;
 }
 
+/* They sit in the ratio card's header; reaching out over its padding keeps them where they were on the whole card. */
+.ratio-head .sparkles {
+  inset: -14px -16px -12px;
+}
+
 .sparkle {
   position: absolute;
   color: #fff3b0;
@@ -475,6 +509,135 @@ select {
     opacity: 1;
     transform: scale(1.1) rotate(45deg);
   }
+}
+
+/* ---------- give & take (inside the ratio card, in its colors) ---------- */
+
+.give-take {
+  position: relative;
+  z-index: 1;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+}
+
+.give-take-title {
+  display: flex;
+  flex-direction: column;
+  margin: 0 0 4px;
+  font-size: 12.5px;
+  font-weight: 650;
+}
+
+.give-take-hint,
+.give-take-empty {
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.give-take-empty {
+  margin: 0;
+}
+
+.give-take-list {
+  margin: 0 0 4px;
+  padding: 0;
+  list-style: none;
+}
+
+.partner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 12px;
+}
+
+.partner-login {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.partner-counts {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Filled part: the share of the trading you gave. Decorative (the counts are the text). */
+.balance {
+  flex: none;
+  width: 40px;
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 22%, transparent);
+  overflow: hidden;
+}
+
+.balance-gave {
+  display: block;
+  height: 100%;
+  background: currentColor;
+}
+
+.give-take .link-button {
+  color: inherit;
+  font-size: 11.5px;
+}
+
+/* ---------- period recap ---------- */
+
+.recap {
+  margin: 4px 0 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+  font-size: 12px;
+}
+
+/* Shown on its own above the ratio card. */
+.recap-banner {
+  margin: 0 0 10px;
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: var(--card);
+}
+
+.recap-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: -4px -6px 2px 0;
+}
+
+.recap-title {
+  font-weight: 650;
+}
+
+.icon-button.small-icon {
+  width: 24px;
+  height: 24px;
+}
+
+.recap-ratio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+  font-weight: 600;
+}
+
+.recap-lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recap-lines li {
+  padding: 1px 0;
 }
 
 /* ---------- metric cards ---------- */
@@ -1037,6 +1200,20 @@ select {
   justify-content: space-between;
   gap: 8px;
   padding: 4px 0;
+}
+
+/* An ended period opens its recap. */
+.history-button {
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.history-button:hover {
+  background: var(--card-hover);
 }
 
 .history-dates {

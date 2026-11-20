@@ -11,15 +11,20 @@ A small tray app (like JetBrains Toolbox) that shows your GitHub pull-request nu
   - green from 2.0, orange from 1.75 up to 2.0, red below 1.75
   - below target it tells you how many more PRs to review to get there
   - at **4.0+** with at least **30 reviews a week** it goes super-powered ✨ (scaled to the range: 5 for a day, 60 for two weeks, and so on). It's meant to be hard.
+  - click it for **Give & take**: the same numbers broken down by person. *you* is how many of their PRs you reviewed in the range; *them* is how many of the PRs you opened in the range they reviewed. Bots don't count.
 - **Authored**: PRs you opened in the range, whatever state they're in now.
 - **Reviewed**: other people's PRs where you submitted at least one review (comment, changes requested or approval) in the range. Each PR counts once.
 - **Waiting on you**: open, ready PRs on your plate, in two sections. A PR is only ever in one, and Requested wins.
   - **Requested**: your review is requested and still pending. Requests to a team you're on count too. GitHub drops a request once you review; if the author re-requests you, the PR comes back here tagged *Re-requested*.
   - **Involved**: you've reviewed it with comments or requested changes, and haven't approved since. Each PR is tagged *Commented*, *Changes requested* or *Review dismissed*. Only reviews count (including inline review comments); a plain comment on the conversation tab doesn't.
   - Once you approve a PR it leaves both sections, unless you're re-requested. A comment after approving doesn't undo the approval, the same as on GitHub.
+- **Your PRs waiting**: your own open, ready PRs with fewer than 2 distinct human reviewers, longest-waiting first. Like Need reviewers, it's live (not limited to the range) and leaves out PRs with an ignored label.
+  - **Copy** puts them all on the clipboard, one per line (`- repo#123 Title https://github.com/…`) under "Need reviewers on these, please:", ready to paste into a chat.
 - **Need reviewers**: open, ready (non-draft) PRs with fewer than 2 distinct human reviewers that you haven't reviewed yet, longest-waiting first. This is a live count, not limited to the range, and covers every repo of the owner you pick: for an organization, that's the whole org's backlog.
   - Its toolbar flips the list to newest first, groups it into collapsible sections by repo, and filters it to PRs with any of the labels you pick. Your choice is remembered.
 - **History**: each period's numbers, kept on your computer as your range rolls over.
+  - **Recap**: when a period ends, a short recap shows once at the top: its ratio, the change from the period before, how many periods in a row you've been at 2.0+, and how many people you reviewed for and who reviewed yours. Dismiss it with ✕; click any ended period in History to see its recap again.
+  - History keeps counts only. To have recaps name the person you traded the most reviews with, switch on **⋯ › Remember teammates in history** (off by default; see [below](#remembering-teammates)).
 - **Tray dot**: the tray icon shows a green, orange, red or purple dot for where your range stands, so you can check without opening the panel.
 
 Click a number to see its PRs (with how long ago each was opened); click a PR to open it on GitHub.
@@ -78,10 +83,20 @@ A token covers one owner. To look at a different organization, create a token fo
 - **When a period ends:** just after midnight (or when your computer wakes, or when you open the panel), the app notices the new period. It fetches the period that just ended one last time to lock in its numbers, then fetches the new one. That's the only thing it ever does without being asked. If that last fetch can't happen, the period shows as "partial" in History.
 - **Refresh:** the ⟳ button. To stay well within GitHub's limits, it can be used once every 30 seconds.
 - **Theme:** the 🖥 / ☀ / 🌙 button switches between System, Light and Dark.
-- **⋯ menu:** Change range, Export history (a CSV file, saved where you choose), Clear history, Change token, Start at login (installed app only), and Quit.
+- **⋯ menu:** Change range, Export history (a CSV file, saved where you choose), Clear history, Remember teammates in history, Change token, Start at login (installed app only), and Quit.
 - **Tray menu:** right-click the tray icon for the same options.
 
 Closing the panel only hides it, and the app stays in the tray. Use **Quit** to exit.
+
+### Remembering teammates
+
+**⋯ › Remember teammates in history** is off by default. When it's on, each period in History also keeps the GitHub usernames of the 5 people you traded the most reviews with (and the counts), so recaps can say "Traded most with @bob".
+
+- It's only recorded while the **GitHub user** is you (the token's owner), never when you're looking at a teammate's numbers.
+- It stays on your computer and is never included in **Export history**.
+- Switching it off deletes every stored username, including in archived history.
+
+This keeps a record about other people, not just you. Whether that's appropriate is your choice: check it fits your team's expectations and your organization's policies. See the [Disclaimer](#disclaimer).
 
 ## Updating
 

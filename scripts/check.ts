@@ -5,8 +5,11 @@ import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MAX_WINDOW_DAYS, parseWindow } from '../src/shared/args';
 import {
-  EMPTY_HISTORY, historyCsv, historyView, MAX_PERIODS, needsChoice, parseHistory, pendingFinalize, recordPeriod, switchSeries,
+  EMPTY_HISTORY, forgetPartners, historyCsv, historyView, isPeriodKey, MAX_PERIODS, MAX_STORED_PARTNERS, needsChoice, parseHistory,
+  partnerExtras, pendingFinalize, recordPeriod, switchSeries, type Series,
 } from '../src/shared/history';
+import { COPY_HEADER, MAX_COPIED_PRS, prLinksText } from '../src/shared/prLinks';
+import { pendingRecap, periodRecap } from '../src/shared/recap';
 import {
   parseView, periodContaining, previousPeriod, RANGE_KINDS, validRange, viewWindow, windowDays,
 } from '../src/shared/range';
@@ -14,13 +17,13 @@ import { reviewRatio, reviewsToTarget, SUPER_MESSAGES, superMinReviews } from '.
 import { validSettings } from '../src/shared/settings';
 import { DOT_COLORS, paintDot } from '../src/main/dot';
 import { applyPrView, DEFAULT_PR_VIEW, labelOptions, parsePrView } from '../src/shared/prView';
-import type { PrSummary } from '../src/shared/types';
+import type { Partner, PrSummary } from '../src/shared/types';
 import { allowedGitHubLink, checkToken, isValidLogin, MAX_LOGIN_LENGTH, parseLabels, redact } from '../src/shared/validate';
 import { assertReadOnlyQuery, ENDPOINT, GitHubError, graphql, QUERIES, setTransport, type Actor } from '../src/main/github';
 import { panelPosition } from '../src/main/placement';
 import {
-  buildSearchQueries, hasIgnoredLabel, hasReviewed, humanReviewers, makeLocalDate, myReviewState, reviewedInWindow, shiftDay,
-  splitWaiting, type ReviewNode,
+  buildSearchQueries, giveAndTake, hasIgnoredLabel, hasReviewed, humanReviewers, makeLocalDate, myReviewState, needingReviewers,
+  reviewedInWindow, shiftDay, splitWaiting, type ReviewNode,
 } from '../src/main/rules';
 
 let failures = 0;
@@ -117,6 +120,39 @@ const split = splitWaiting(requestedNodes, reviewedNodes, 'alice');
 expect(ids(split.requested) === '1,2', 'Requested keeps every pending request, including a re-request after approving');
 expect(ids(split.involved) === '3,4,6', 'Involved: commented, changes requested and dismissed; approved PRs are dropped');
 expect(!split.involved.some((x) => split.requested.some((r) => r.url === x.url)), 'a PR is never in both sections (Requested wins)');
+
+section('Give & take');
+const by = (author: Actor | null) => ({ author });
+const mineWith = (...reviews: ReviewNode[]) => ({ reviews: { nodes: reviews } });
+const traded = giveAndTake(
+  'alice',
+  [by(user('bob')), by(user('Bob')), by(user('carol')), by(bot('dependabot')), by(null), by(user('alice'))],
+  [
+    mineWith(review(user('bob'), 'APPROVED'), review(user('bob'), 'COMMENTED'), review(user('dave'), 'COMMENTED')),
+    mineWith(review(user('dave'), 'CHANGES_REQUESTED'), review(bot('copilot'), 'COMMENTED'), review(null, 'APPROVED')),
+    mineWith(review(user('alice'), 'COMMENTED'), review(user('erin'), 'PENDING', null)),
+  ],
+);
+const tradedText = traded.map((p) => `${p.login}:${p.gave}/${p.got}`).join(',');
+expect(tradedText === 'bob:2/1,dave:0/2,carol:1/0', `counts each PR once per person, most traded first (${tradedText})`);
+expect(!traded.some((p) => /dependabot|copilot|ghost|alice|erin/i.test(p.login)), 'bots, deleted accounts, yourself and unsent reviews are left out');
+expect(traded.find((p) => p.login.toLowerCase() === 'bob')?.login === 'bob', 'the same person in different case is one entry');
+expect(giveAndTake('alice', [], []).length === 0, 'nothing traded: nobody listed');
+expect(giveAndTake('alice', [by(user('zed')), by(user('amy'))], []).map((p) => p.login).join() === 'amy,zed', 'ties are sorted by login');
+
+section('Your PRs waiting');
+const own = (n: number, labels: string[], ...reviews: ReviewNode[]) => ({
+  n, author: user('alice'), labels: { nodes: labels.map((name) => ({ name })) }, reviews: { nodes: reviews },
+});
+const ownPrs = [
+  own(1, []),
+  own(2, [], review(user('bob'), 'APPROVED')),
+  own(3, [], review(user('bob'), 'APPROVED'), review(user('carol'), 'COMMENTED')),
+  own(4, ['WIP']),
+  own(5, [], review(user('alice'), 'COMMENTED'), review(bot('copilot'), 'COMMENTED'), review(user('bob'), 'COMMENTED')),
+];
+const stillNeed = needingReviewers(ownPrs, ['wip']).map((x) => x.n).join(',');
+expect(stillNeed === '1,2,5', `fewer than 2 human reviewers, ignored labels left out; your own and bots' reviews don't count (${stillNeed})`);
 
 section('Review ratio');
 // A week's worth of reviews needed for super, unless a test says otherwise.
@@ -285,8 +321,84 @@ const tampered = parseHistory({
 expect(tampered.history.series.length === 2 && tampered.history.series[0]!.periods.length === 1, 'invalid series and periods in a hand-edited file are dropped');
 expect(tampered.history.series.filter((s) => s.archivedAt === null).length === 1, 'only one series can be active');
 const csv = historyCsv(h4).split('\r\n');
-expect(csv[0] === '"owner","login","range","range_start","status","from","to","authored","reviewed","ratio","final"', 'CSV export has a header');
+expect(csv[0] === '"owner","login","range","range_start","status","from","to","authored","reviewed","ratio","final","reviewed_for","reviewed_by"', 'CSV export has a header');
 expect(csv.length === 4 && csv[1]!.includes('"active"') && csv[2]!.includes('"archived"') && csv[1]!.includes('"2.00"'), 'CSV export lists every period, active series first');
+
+section('History: teammates (counts always, logins only when opted in)');
+const team: Partner[] = ['bob', 'carol', 'dave', 'erin', 'frank', 'grace', 'heidi'].map((login, i) => ({ login, gave: 7 - i, got: i % 2 }));
+const counted = partnerExtras(team, false);
+expect(counted.reviewedFor === 7 && counted.reviewedBy === 3 && counted.partners === undefined, 'without the opt-in, only the anonymous counts are kept');
+const remembered = partnerExtras(team, true);
+expect(remembered.partners?.length === MAX_STORED_PARTNERS && remembered.partners[0]!.login === 'bob', `with it, only the top ${MAX_STORED_PARTNERS} logins are kept`);
+expect(partnerExtras([], true).partners === undefined, 'nobody traded: no logins stored');
+const withTeam = recordPeriod(EMPTY_HISTORY, S1, { ...p('2026-11-02', '2026-11-08', 4, 7), ...remembered }, t(3));
+const roundTrip = parseHistory(JSON.parse(JSON.stringify(withTeam)) as unknown);
+// Compared with keys sorted: a period read back lists its fields in a different order.
+const canon = (v: unknown) =>
+  JSON.stringify(v, (_k, x: unknown) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort()) : x));
+expect(canon(roundTrip.history) === canon(withTeam), 'remembered teammates read back the same');
+const handEdited = parseHistory({
+  version: 1,
+  series: [{
+    ...withTeam.series[0],
+    periods: [{
+      ...withTeam.series[0]!.periods[0],
+      reviewedFor: -2,
+      partners: [{ login: 'bad login!', gave: 1, got: 1 }, { login: 'ok', gave: 'x', got: 1 }, ...Array.from({ length: 8 }, (_, i) => ({ login: `p${i}`, gave: 1, got: 0 }))],
+    }],
+  }],
+});
+const editedPeriod = handEdited.history.series[0]!.periods[0]!;
+expect(
+  editedPeriod.reviewedFor === undefined && editedPeriod.reviewedBy === 3 && editedPeriod.partners?.length === MAX_STORED_PARTNERS && editedPeriod.partners[0]!.login === 'p0',
+  'bad extras in a hand-edited file are dropped, the period is kept, and at most 5 logins survive',
+);
+const forgot = forgetPartners(switchSeries(withTeam, S2, 'archive', t(5)));
+expect(forgot.series.every((x) => x.periods.every((pp) => pp.partners === undefined)) && forgot.series[0]!.periods[0]!.reviewedFor === 7, 'forgetting removes every login, archived too, and keeps the counts');
+expect(!JSON.stringify(forgot).includes('bob'), 'no login is left anywhere in the file');
+expect(forgetPartners(h4) === h4, 'nothing to forget: unchanged');
+const teamCsv = historyCsv(withTeam);
+expect(teamCsv.split('\r\n')[0]!.endsWith(',"reviewed_for","reviewed_by"') && teamCsv.includes('"7","3"'), 'CSV export has the anonymous counts as its last columns');
+expect(!/bob|carol|dave/.test(teamCsv), 'CSV export never includes teammate logins');
+expect(isPeriodKey('2026-11-02|2026-11-08') && !isPeriodKey('2026-11-02') && !isPeriodKey('x|y') && !isPeriodKey(42), 'period keys are checked');
+
+section('Period recap');
+const recapSeries = (periods: Array<{ from: string; to: string; authored: number; reviewed: number; final?: boolean }>): Series => ({
+  owner: 'octo-org', login: 'alice', kind: 'week', start: '2026-10-05', startedAt: t(1), archivedAt: null,
+  periods: periods.map((x) => ({ ...x, final: x.final ?? true, updatedAt: t(1) })),
+});
+const wk = (i: number, authored: number, reviewed: number, final = true) =>
+  ({ from: shiftDay('2026-10-05', i * 7), to: shiftDay('2026-10-05', i * 7 + 6), authored, reviewed, final });
+const rs = recapSeries([wk(0, 2, 1), wk(1, 2, 4), wk(2, 0, 3), wk(3, 4, 9), wk(4, 2, 1, false)]);
+const rp = (i: number) => periodRecap(rs, rs.periods[i]!);
+expect(rp(0).delta === null && rp(0).streak === 0, 'the first period has nothing to compare with, and below target has no streak');
+expect(rp(1).delta === 1.5 && rp(1).streak === 1, 'change from the period before (0.50 → 2.00)');
+expect(rp(2).streak === 2 && rp(2).delta === null, 'reviewing while opening nothing keeps the streak going (but has no ratio to compare)');
+expect(rp(3).streak === 3 && rp(3).delta === null, 'streak counts back-to-back periods at target; no ratio before means no change shown');
+expect(rp(4).streak === 0 && rp(4).delta === -1.75, 'dropping below target ends the streak, and the drop is shown');
+const gappy = recapSeries([wk(0, 1, 2), wk(2, 1, 2)]);
+expect(periodRecap(gappy, gappy.periods[1]!).streak === 1 && periodRecap(gappy, gappy.periods[1]!).delta === null, 'a missing period breaks the streak and the comparison');
+const idle = recapSeries([wk(0, 1, 2), wk(1, 0, 0)]);
+expect(periodRecap(idle, idle.periods[1]!).streak === 0, 'a period with no activity at all is not on target');
+expect(periodRecap(recapSeries([{ ...wk(0, 1, 2) }]), { ...wk(0, 1, 2), updatedAt: t(1), partners: [{ login: 'bob', gave: 2, got: 1 }] }).topPartner?.login === 'bob', 'the top remembered teammate is named');
+const now5 = { from: shiftDay('2026-10-05', 35), to: shiftDay('2026-10-05', 41) };
+expect(pendingRecap(rs, now5, null)?.from === wk(3, 0, 0).from, 'the recap that shows by itself is the newest locked-in period (partial ones are skipped)');
+expect(pendingRecap(rs, now5, `${wk(3, 0, 0).from}|${wk(3, 0, 0).to}`) === null, 'once dismissed, it stays dismissed');
+expect(pendingRecap(rs, { from: wk(3, 0, 0).from, to: wk(3, 0, 0).to }, null)?.from === wk(2, 0, 0).from, 'the period in progress never has a recap');
+expect(pendingRecap(null, now5, null) === null, 'no history: no recap');
+
+section('Copying your PRs');
+const ownPr = (n: number, title: string, url = `https://github.com/octo-org/api/pull/${n}`): PrSummary =>
+  ({ repo: 'octo-org/api', number: n, title, url, author: 'alice', createdAt: '2026-11-15T10:00:00Z' });
+const copied = prLinksText([ownPr(412, 'Add retry to webhook sender'), ownPr(88, 'Fix\nthe\u202edate\tpicker  ')]);
+expect(
+  copied === `${COPY_HEADER}\n- api#412 Add retry to webhook sender https://github.com/octo-org/api/pull/412\n- api#88 Fix the date picker https://github.com/octo-org/api/pull/88`,
+  'one PR per line: repo#number, title and link; line breaks and direction overrides in titles are flattened',
+);
+expect(prLinksText([ownPr(1, 'Settings', 'https://github.com/settings/personal-access-tokens'), ownPr(2, 'Evil', 'https://github.com.evil.example/o/r/pull/2')]) === '', 'only pull-request links on github.com are copied');
+expect(prLinksText([]) === '', 'nothing to copy: empty');
+expect(prLinksText([ownPr(3, 'x'.repeat(500))]).split('\n')[1]!.length < 200, 'very long titles are shortened');
+expect(prLinksText(Array.from({ length: 150 }, (_, i) => ownPr(i + 1, 'PR'))).split('\n').length === MAX_COPIED_PRS + 1, `at most ${MAX_COPIED_PRS} PRs are copied`);
 
 // ---------- tray dot ----------
 section('Tray status dot');
@@ -314,6 +426,7 @@ expect(q.reviewed === 'org:octo-org is:pr reviewed-by:alice -author:alice update
 expect(q.open === 'org:octo-org is:pr is:open draft:false', 'open-PR query');
 expect(q.waiting === 'org:octo-org is:pr is:open draft:false review-requested:alice', 'waiting-on-you query');
 expect(q.involved === 'org:octo-org is:pr is:open draft:false reviewed-by:alice -author:alice', 'involved query');
+expect(q.mine === 'org:octo-org is:pr is:open draft:false author:alice', 'your-PRs query');
 expect(buildSearchQueries('User', 'alice', 'alice', w).open.startsWith('user:alice '), 'user scope uses user:');
 expect(throws(() => buildSearchQueries('Organization', 'octo-org repo:victim/x', 'alice', w)), 'an injected owner is refused');
 expect(throws(() => buildSearchQueries('Organization', 'octo-org', 'alice OR is:open', w)), 'an injected login is refused');

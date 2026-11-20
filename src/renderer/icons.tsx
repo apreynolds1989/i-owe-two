@@ -167,3 +167,25 @@ export const FilterIcon = () => (
     <path d="M4 5h16l-6 7.5V19l-4-2v-4.5L4 5Z" />
   </Icon>
 );
+
+/** Your PRs waiting: an outbox, things you've sent out. */
+export const OutboxIcon = () => (
+  <Icon size={20}>
+    <path d="M4 13v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5" />
+    <path d="M4 13h4l1.5 2.5h5L16 13h4" />
+    <path d="M12 3v8M8.5 6.5 12 3l3.5 3.5" />
+  </Icon>
+);
+
+export const CopyIcon = () => (
+  <Icon size={14}>
+    <rect x="8" y="8" width="12" height="12" rx="2" />
+    <path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" />
+  </Icon>
+);
+
+export const CheckIcon = () => (
+  <Icon size={14}>
+    <path d="m5 12 5 5 9-10" />
+  </Icon>
+);
