@@ -1,8 +1,8 @@
-import type { SprintBridge } from '../shared/types';
+import type { AppBridge } from '../shared/types';
 
 declare global {
   interface Window {
     /** Exposed by src/preload/preload.ts. */
-    sprint: SprintBridge;
+    sprint: AppBridge;
   }
 }

@@ -1,6 +1,6 @@
 // Period recaps: a short look back at one ended period, built only from what History stored (counts,
 // plus teammate logins if the person opted in). Pure, so scripts/check.ts can test it.
-import type { SprintWindow } from './args';
+import type { DateWindow } from './dateWindow';
 import { periodKey, periodRatio, type Period, type Series } from './history';
 import { shiftDay } from './range';
 import type { ReviewRatio } from './ratio';
@@ -21,25 +21,27 @@ export interface Recap {
  * At target or better. A period with nothing authored has no ratio, but reviewing others' PRs while
  * opening none is still doing your share, so it counts; a period with no activity at all doesn't.
  */
-const onTarget = (p: Period) => {
-  const r = periodRatio(p);
-  return r.status === 'good' || r.status === 'super' || (r.status === 'none' && p.reviewed > 0);
+const onTarget = (period: Period) => {
+  const ratio = periodRatio(period);
+  return ratio.status === 'good' || ratio.status === 'super' || (ratio.status === 'none' && period.reviewed > 0);
 };
-/** b starts the day after a ends: no missing period between them. */
-const followsOn = (a: Period, b: Period) => shiftDay(a.to, 1) === b.from;
+/** `later` starts the day after `earlier` ends: no missing period between them. */
+const followsOn = (earlier: Period, later: Period) => shiftDay(earlier.to, 1) === later.from;
 
+/** The recap for one period of a series: its ratio, the change from the period before, and the streak. */
 export function periodRecap(series: Series, period: Period): Recap {
   const periods = series.periods; // oldest first
-  const i = periods.findIndex((p) => periodKey(p) === periodKey(period));
-  const before = i > 0 ? periods[i - 1]! : null;
+  const index = periods.findIndex((candidate) => periodKey(candidate) === periodKey(period));
+  const before = index > 0 ? periods[index - 1]! : null;
   const ratio = periodRatio(period);
-  const prevValue = before && followsOn(before, period) ? periodRatio(before).value : null;
-  const delta = ratio.value !== null && prevValue !== null ? Math.round((ratio.value - prevValue) * 100) / 100 : null;
+  const previousValue = before && followsOn(before, period) ? periodRatio(before).value : null;
+  const delta = ratio.value !== null && previousValue !== null ? Math.round((ratio.value - previousValue) * 100) / 100 : null;
 
-  // A gap (the app wasn't run for a whole period) ends the streak: there's nothing to say it was kept up.
+  // Walk back from this period. A gap (the app wasn't run for a whole period) ends the streak: there's
+  // nothing to say it was kept up.
   let streak = 0;
-  for (let j = i; j >= 0 && onTarget(periods[j]!); j--) {
-    if (j < i && !followsOn(periods[j]!, periods[j + 1]!)) break;
+  for (let earlier = index; earlier >= 0 && onTarget(periods[earlier]!); earlier--) {
+    if (earlier < index && !followsOn(periods[earlier]!, periods[earlier + 1]!)) break;
     streak++;
   }
 
@@ -51,8 +53,8 @@ export function periodRecap(series: Series, period: Period): Recap {
  * recap was already dismissed. Partial periods are left out (their numbers may be incomplete), but can
  * still be opened from History.
  */
-export function pendingRecap(series: Series | null, current: SprintWindow | null, seen: string | null): Period | null {
+export function pendingRecap(series: Series | null, current: DateWindow | null, seen: string | null): Period | null {
   if (!series || !current) return null;
-  const latest = series.periods.filter((p) => p.final && p.to < current.from).at(-1);
+  const latest = series.periods.filter((period) => period.final && period.to < current.from).at(-1);
   return latest && periodKey(latest) !== seen ? latest : null;
 }

@@ -3,7 +3,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MAX_WINDOW_DAYS, parseWindow } from '../src/shared/args';
+import { MAX_WINDOW_DAYS, parseWindow } from '../src/shared/dateWindow';
 import {
   EMPTY_HISTORY, forgetPartners, historyCsv, historyView, isPeriodKey, MAX_PERIODS, MAX_STORED_PARTNERS, needsChoice, parseHistory,
   partnerExtras, pendingFinalize, recordPeriod, switchSeries, type Series,
@@ -11,7 +11,7 @@ import {
 import { COPY_HEADER, MAX_COPIED_PRS, prLinksText } from '../src/shared/prLinks';
 import { pendingRecap, periodRecap } from '../src/shared/recap';
 import {
-  parseView, periodContaining, previousPeriod, RANGE_KINDS, validRange, viewWindow, windowDays,
+  parseView, periodContaining, RANGE_KINDS, shiftDay, validRange, viewWindow, windowDays,
 } from '../src/shared/range';
 import { reviewRatio, reviewsToTarget, SUPER_MESSAGES, superMinReviews } from '../src/shared/ratio';
 import { validSettings } from '../src/shared/settings';
@@ -23,7 +23,7 @@ import { assertReadOnlyQuery, ENDPOINT, GitHubError, graphql, QUERIES, setTransp
 import { panelPosition } from '../src/main/placement';
 import {
   buildSearchQueries, giveAndTake, hasIgnoredLabel, hasReviewed, humanReviewers, makeLocalDate, myReviewState, needingReviewers,
-  reviewedInWindow, shiftDay, splitWaiting, type ReviewNode,
+  reviewedInWindow, splitWaiting, type ReviewNode,
 } from '../src/main/rules';
 
 let failures = 0;
@@ -214,8 +214,6 @@ expect(same(periodContaining(leapYear, '2029-03-01'), win('2029-02-28', '2030-02
 expect(same(periodContaining(leapYear, '2032-02-29'), win('2032-02-29', '2033-02-27')), 'year from Feb 29: back on Feb 29 in leap years');
 expect(same(periodContaining({ kind: 'year', start: '2026-01-01' }, '2026-12-31'), win('2026-01-01', '2026-12-31')), 'year: Jan 1 to Dec 31');
 expect(same(periodContaining({ kind: 'day', start: '2026-11-02' }, '2026-11-20'), win('2026-11-20', '2026-11-20')), 'day: just today');
-expect(same(previousPeriod(week, win('2026-11-16', '2026-11-22')), win('2026-11-09', '2026-11-15')), 'previous week');
-expect(same(previousPeriod(month31, win('2026-02-28', '2026-03-30')), win('2026-01-31', '2026-02-27')), 'previous month (clamped)');
 // Every day for three years, for every kind and some awkward starts: each day is inside its period, and
 // periods follow on from each other with no gaps or overlaps.
 let tiles = true;

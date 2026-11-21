@@ -2,7 +2,8 @@
 // viewing range is a temporary look at other dates that's never saved. Everything here works on
 // YYYY-MM-DD strings with UTC arithmetic, so there are no time-zone or DST surprises: "today" is
 // worked out by the caller in the person's own time zone.
-import { isValidDate, parseWindow, type SprintWindow } from './args';
+import { isValidDate, parseWindow, type DateWindow } from './dateWindow';
+import { isObject } from './validate';
 
 export type RangeKind = 'day' | 'week' | 'twoWeeks' | 'month' | 'year';
 export const RANGE_KINDS: readonly RangeKind[] = ['day', 'week', 'twoWeeks', 'month', 'year'];
@@ -35,11 +36,11 @@ const fromMs = (ms: number) => new Date(ms).toISOString().slice(0, 10);
 
 /** Shift a YYYY-MM-DD date by whole days. */
 export const shiftDay = (ymd: string, days: number) => fromMs(toMs(ymd) + days * DAY_MS);
-/** Whole days from a to b (negative when b is earlier). */
-export const daysBetween = (a: string, b: string) => Math.round((toMs(b) - toMs(a)) / DAY_MS);
+/** Whole days from `from` to `to` (negative when `to` is earlier). */
+const daysBetween = (from: string, to: string) => Math.round((toMs(to) - toMs(from)) / DAY_MS);
 /** Days in an inclusive window. */
-export const windowDays = (w: SprintWindow) => daysBetween(w.from, w.to) + 1;
-export const sameWindow = (a: SprintWindow | null | undefined, b: SprintWindow | null | undefined) =>
+export const windowDays = (window: DateWindow) => daysBetween(window.from, window.to) + 1;
+export const sameWindow = (a: DateWindow | null | undefined, b: DateWindow | null | undefined) =>
   !!a && !!b && a.from === b.from && a.to === b.to;
 
 /**
@@ -48,45 +49,47 @@ export const sameWindow = (a: SprintWindow | null | undefined, b: SprintWindow |
  * and then Mar 31 again (not Mar 28).
  */
 function addMonths(start: string, months: number): string {
-  const [y, m, d] = start.split('-').map(Number) as [number, number, number];
-  const index = y * 12 + (m - 1) + months;
-  const year = Math.floor(index / 12);
-  const month = index - year * 12;
-  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-  return fromMs(Date.UTC(year, month, Math.min(d, lastDay)));
+  const [startYear, startMonth, startDay] = start.split('-').map(Number) as [number, number, number];
+  // Count in months since year 0, so the year carries over without special cases.
+  const monthIndex = startYear * 12 + (startMonth - 1) + months;
+  const year = Math.floor(monthIndex / 12);
+  const month = monthIndex - year * 12; // 0-based
+  const lastDayOfMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  return fromMs(Date.UTC(year, month, Math.min(startDay, lastDayOfMonth)));
 }
 
 /** The period of `range` that contains `today`. Works for dates before `start` too (periods repeat backwards). */
-export function periodContaining(range: RangeSetting, today: string): SprintWindow {
+export function periodContaining(range: RangeSetting, today: string): DateWindow {
   switch (range.kind) {
     case 'day':
       return { from: today, to: today };
     case 'week':
     case 'twoWeeks': {
-      const len = range.kind === 'week' ? 7 : 14;
-      const k = Math.floor(daysBetween(range.start, today) / len);
-      const from = shiftDay(range.start, k * len);
-      return { from, to: shiftDay(from, len - 1) };
+      const periodDays = range.kind === 'week' ? 7 : 14;
+      // Negative before `start`: Math.floor rounds towards the earlier period.
+      const periodIndex = Math.floor(daysBetween(range.start, today) / periodDays);
+      const from = shiftDay(range.start, periodIndex * periodDays);
+      return { from, to: shiftDay(from, periodDays - 1) };
     }
     case 'month':
     case 'year': {
-      const step = range.kind === 'month' ? 1 : 12;
-      const [sy, sm] = range.start.split('-').map(Number) as [number, number];
-      const [ty, tm] = today.split('-').map(Number) as [number, number];
+      const monthsPerPeriod = range.kind === 'month' ? 1 : 12;
+      const [startYear, startMonth] = range.start.split('-').map(Number) as [number, number];
+      const [todayYear, todayMonth] = today.split('-').map(Number) as [number, number];
       // A first guess from whole months, then nudged, since clamped month ends can shift it by one.
-      let k = Math.floor((ty * 12 + tm - (sy * 12 + sm)) / step);
-      if (addMonths(range.start, k * step) > today) k--;
-      if (addMonths(range.start, (k + 1) * step) <= today) k++;
-      return { from: addMonths(range.start, k * step), to: shiftDay(addMonths(range.start, (k + 1) * step), -1) };
+      let periodIndex = Math.floor((todayYear * 12 + todayMonth - (startYear * 12 + startMonth)) / monthsPerPeriod);
+      if (addMonths(range.start, periodIndex * monthsPerPeriod) > today) periodIndex--;
+      if (addMonths(range.start, (periodIndex + 1) * monthsPerPeriod) <= today) periodIndex++;
+      return {
+        from: addMonths(range.start, periodIndex * monthsPerPeriod),
+        to: shiftDay(addMonths(range.start, (periodIndex + 1) * monthsPerPeriod), -1),
+      };
     }
   }
 }
 
-/** The period just before `window`. */
-export const previousPeriod = (range: RangeSetting, window: SprintWindow) => periodContaining(range, shiftDay(window.from, -1));
-
 /** The window a view shows. */
-export function viewWindow(view: ViewRange, tracked: SprintWindow, today: string): SprintWindow {
+export function viewWindow(view: ViewRange, tracked: DateWindow, today: string): DateWindow {
   switch (view.kind) {
     case 'tracked':
       return tracked;
@@ -97,39 +100,40 @@ export function viewWindow(view: ViewRange, tracked: SprintWindow, today: string
   }
 }
 
+/** What the Viewing picker calls a view: "My range", "Today", "Last 7 days", "Custom dates". */
 export function viewLabel(view: ViewRange): string {
   if (view.kind === 'tracked') return 'My range';
   if (view.kind === 'custom') return 'Custom dates';
   return view.days === 1 ? 'Today' : `Last ${view.days} days`;
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
 /** Keeps dates to a sensible span, well clear of years Date.UTC treats specially (0–99). */
-const plausibleDate = (s: unknown): s is string => typeof s === 'string' && isValidDate(s) && s >= '2000-01-01' && s <= '2100-12-31';
+const plausibleDate = (value: unknown): value is string =>
+  typeof value === 'string' && isValidDate(value) && value >= '2000-01-01' && value <= '2100-12-31';
 
 /** A tracked range, accepted only if it's well formed. */
-export function validRange(v: unknown): RangeSetting | null {
-  if (!isObject(v)) return null;
-  const { kind, start } = v;
+export function validRange(value: unknown): RangeSetting | null {
+  if (!isObject(value)) return null;
+  const { kind, start } = value;
   if (typeof kind !== 'string' || !(RANGE_KINDS as readonly string[]).includes(kind)) return null;
   if (!plausibleDate(start)) return null;
   return { kind: kind as RangeKind, start };
 }
 
 /** A viewing range, or a message saying what's wrong with it. Custom dates keep the usual window limit. */
-export function parseView(v: unknown): ViewRange | { error: string } {
-  if (!isObject(v)) return { error: 'Invalid range.' };
-  if (v.kind === 'tracked') return TRACKED;
-  if (v.kind === 'lastDays') {
-    const days = LAST_DAYS.find((d) => d === v.days);
+export function parseView(value: unknown): ViewRange | { error: string } {
+  if (!isObject(value)) return { error: 'Invalid range.' };
+  if (value.kind === 'tracked') return TRACKED;
+  if (value.kind === 'lastDays') {
+    const days = LAST_DAYS.find((offered) => offered === value.days);
     return days ? { kind: 'lastDays', days } : { error: 'Invalid range.' };
   }
-  if (v.kind === 'custom') {
-    if (typeof v.from !== 'string' || typeof v.to !== 'string') return { error: 'Choose a start and an end date.' };
-    if (v.from && !plausibleDate(v.from)) return { error: `Not a valid date: ${v.from}` };
-    if (v.to && !plausibleDate(v.to)) return { error: `Not a valid date: ${v.to}` };
-    const w = parseWindow(v.from, v.to);
-    return 'error' in w ? w : { kind: 'custom', from: w.from, to: w.to };
+  if (value.kind === 'custom') {
+    if (typeof value.from !== 'string' || typeof value.to !== 'string') return { error: 'Choose a start and an end date.' };
+    if (value.from && !plausibleDate(value.from)) return { error: `Not a valid date: ${value.from}` };
+    if (value.to && !plausibleDate(value.to)) return { error: `Not a valid date: ${value.to}` };
+    const window = parseWindow(value.from, value.to);
+    return 'error' in window ? window : { kind: 'custom', from: window.from, to: window.to };
   }
   return { error: 'Invalid range.' };
 }

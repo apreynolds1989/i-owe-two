@@ -3,7 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <!-- Also sent as a response header by the main process. The UI loads only its own files and
-         cannot make any network request; all GitHub calls happen in the main process. -->
+         cannot make any network request; all GitHub calls happen in the main process.
+         frame-ancestors is only in the header copy: browsers ignore it in a <meta> tag. -->
     <meta
       http-equiv="Content-Security-Policy"
       content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'"

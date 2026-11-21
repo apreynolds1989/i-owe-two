@@ -9,13 +9,13 @@ import { GitHubError, graphql, QUERIES } from '../../src/main/github';
 import { hardenSession, hardenWebContents, INDEX_URL, registerAppScheme, serveRenderer } from '../../src/main/security';
 import { installTransport } from '../../src/main/transport';
 import type { Series } from '../../src/shared/history';
-import type { AppState, Metric, Partner, PrListView, PrSummary, SprintMetrics, SprintSettings } from '../../src/shared/types';
+import type { AppState, Metric, Partner, PrListView, PrSummary, ReviewMetrics, TrackedSettings } from '../../src/shared/types';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, '..');
 const out = join(root, 'screenshots');
 
-const settings: SprintSettings = { owner: 'octo-org', login: 'alice', range: { kind: 'week', start: '2026-11-02' }, ignoreLabels: [] };
+const settings: TrackedSettings = { owner: 'octo-org', login: 'alice', range: { kind: 'week', start: '2026-11-02' }, ignoreLabels: [] };
 const window = { from: '2026-11-16', to: '2026-11-22' };
 const period = (from: string, to: string, authored: number, reviewed: number, final = true) => ({
   from, to, authored, reviewed, final, updatedAt: '2026-11-19T14:42:00Z',
@@ -72,7 +72,7 @@ const metric = (count: number, prs = [pr(101, 'Add the settings page'), pr(102, 
   capped: false,
   searchTotal: count,
 });
-const metrics = (authored: number, reviewed: number): SprintMetrics => ({
+const metrics = (authored: number, reviewed: number): ReviewMetrics => ({
   settings,
   window,
   ownerType: 'Organization',
@@ -119,7 +119,7 @@ const view = (v: Partial<PrListView>) => ({ ...baseState, prView: { ...baseState
 interface Scenario {
   name: string;
   state: AppState;
-  metrics?: SprintMetrics;
+  metrics?: ReviewMetrics;
   /** Expand a card's PR list (cards other than Need reviewers are scrolled into view). */
   expand?: 'needsReviewers' | 'waitingOnYou' | 'yourPrsWaiting';
   /** Open Give & take on the ratio card. */

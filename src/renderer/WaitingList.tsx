@@ -1,8 +1,8 @@
 // The expanded "Waiting on you" card: two sections, so what's explicitly asked of you stands apart from
 // PRs you're already part of. The main process decides the sections (splitWaiting in src/main/rules.ts);
 // a PR is only ever in one. This component only keeps which sections are collapsed (not remembered).
-import { useState } from 'react';
 import type { PrSummary } from '../shared/types';
+import { useToggleSet } from './hooks';
 import { ChevronIcon } from './icons';
 import { PrRow, type PrTag } from './MetricCard';
 
@@ -36,31 +36,26 @@ export function waitingNote(prs: PrSummary[]): string | undefined {
   return [requested && `${requested} requested`, involved && `${involved} involved`].filter(Boolean).join(' · ') || undefined;
 }
 
+/** The "Waiting on you" PRs in their Requested and Involved sections, each collapsible. */
 export function WaitingList({ prs }: { prs: PrSummary[] }) {
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
-  const toggle = (key: string) =>
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (!next.delete(key)) next.add(key);
-      return next;
-    });
+  const [collapsedSections, toggleSection] = useToggleSet();
 
   return (
     <div className="pr-view">
       {SECTIONS.map(({ key, title, hint }) => {
-        const list = prs.filter((pr) => (pr.section ?? 'requested') === key);
-        if (list.length === 0) return null; // an empty section is just noise
-        const open = !collapsed.has(key);
+        const sectionPrs = prs.filter((pr) => (pr.section ?? 'requested') === key);
+        if (sectionPrs.length === 0) return null; // an empty section is just noise
+        const open = !collapsedSections.has(key);
         return (
           <section key={key} className="pr-group pr-section">
-            <button className="pr-group-head" onClick={() => toggle(key)} aria-expanded={open} title={hint}>
+            <button className="pr-group-head" onClick={() => toggleSection(key)} aria-expanded={open} title={hint}>
               <ChevronIcon open={open} />
               <span className="pr-group-name">{title}</span>
-              <span className="pr-group-count">{list.length}</span>
+              <span className="pr-group-count">{sectionPrs.length}</span>
             </button>
             {open && (
               <ul className="pr-list">
-                {list.map((pr) => (
+                {sectionPrs.map((pr) => (
                   <PrRow key={pr.url} pr={pr} showReviewers tag={tagFor(pr)} />
                 ))}
               </ul>

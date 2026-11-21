@@ -1,30 +1,35 @@
+// One metric card (count, hint, expandable PR list), and PrRow, the PR line every list uses.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { REVIEWERS_NEEDED } from '../shared/ratio';
 import type { Metric, PrSummary } from '../shared/types';
 import { openedAgo } from './dates';
 import { ChevronIcon } from './icons';
 
 const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+const COUNT_UP_MS = 600;
+
 /** Counts from the previous value to the new one over ~0.6 s (instantly if reduced motion is on). */
 function useCountUp(target: number | undefined): number | undefined {
   const [shown, setShown] = useState(target);
-  const from = useRef(target ?? 0);
+  /** The value the last animation finished on: where the next one starts. */
+  const settledValue = useRef(target ?? 0);
   useEffect(() => {
     if (target === undefined) return;
     if (prefersReducedMotion()) {
       setShown(target);
-      from.current = target;
+      settledValue.current = target;
       return;
     }
-    const start = performance.now();
-    const begin = from.current;
+    const startedAt = performance.now();
+    const startValue = settledValue.current;
     let frame = 0;
     const step = (now: number) => {
-      const t = Math.min(1, (now - start) / 600);
-      const eased = 1 - (1 - t) ** 3;
-      setShown(Math.round(begin + (target - begin) * eased));
-      if (t < 1) frame = requestAnimationFrame(step);
-      else from.current = target;
+      const progress = Math.min(1, (now - startedAt) / COUNT_UP_MS);
+      const eased = 1 - (1 - progress) ** 3; // ease-out cubic: fast, then settling
+      setShown(Math.round(startValue + (target - startValue) * eased));
+      if (progress < 1) frame = requestAnimationFrame(step);
+      else settledValue.current = target;
     };
     frame = requestAnimationFrame(step);
     return () => cancelAnimationFrame(frame);
@@ -60,13 +65,17 @@ export function PrRow(props: { pr: PrSummary; showReviewers: boolean; hideRepo?:
           <span className="nowrap">by {pr.author}</span> ·{' '}
           {/* "opened", not "waiting": a PR that started as a draft wasn't waiting the whole time. */}
           <span className="nowrap">{openedAgo(pr.createdAt)}</span> ·{' '}
-          <span className="nowrap">{pr.reviewerCount ?? 0} of 2 reviewers</span>
+          <span className="nowrap">
+            {pr.reviewerCount ?? 0}
+            {` of ${REVIEWERS_NEEDED} reviewers`}
+          </span>
         </span>
       )}
     </li>
   );
 }
 
+/** A metric's count with its icon and label; when expanded, its PRs (or `children`, for cards with their own layout). */
 export function MetricCard(props: {
   icon: ReactNode;
   label: string;

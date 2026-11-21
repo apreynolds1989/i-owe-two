@@ -1,6 +1,9 @@
 // Review ratio: PRs reviewed ÷ PRs authored in the range. Each PR needs two reviewers, so reviewing
 // at least twice as many PRs as you open is your share of the team's review load.
 
+/** Distinct human reviewers a PR needs; below this it shows in "Need reviewers" and "Your PRs waiting". */
+export const REVIEWERS_NEEDED = 2;
+
 export const RATIO_SUPER = 4.0;
 export const RATIO_TARGET = 2.0;
 export const RATIO_WARN = 1.75;
@@ -48,16 +51,17 @@ export const SUPER_MESSAGES = [
 // Judge the rounded value so the color always agrees with the number on screen
 // (1.999 shows as "2.00", so it must be green, not yellow).
 const rounded = (reviewed: number, authored: number) => Math.round((reviewed / authored) * 100) / 100;
-const plural = (n: number, word: string) => `${n} more ${word}${n === 1 ? '' : 's'}`;
+const plural = (count: number, word: string) => `${count} more ${word}${count === 1 ? '' : 's'}`;
 
 /** How many more PRs to review to reach the target (0 when already there, or when nothing was authored). */
 export function reviewsToTarget(reviewed: number, authored: number): number {
   if (authored <= 0) return 0;
-  // Uses the same rounding as the ratio, so the hint always agrees with the number on screen.
-  let n = Math.max(0, Math.floor(RATIO_TARGET * authored - reviewed) - 1);
-  while (rounded(reviewed + n, authored) < RATIO_TARGET) n++;
-  while (n > 0 && rounded(reviewed + n - 1, authored) >= RATIO_TARGET) n--;
-  return n;
+  // Uses the same rounding as the ratio, so the hint always agrees with the number on screen:
+  // start just below the exact answer, then step up (and back down) to the smallest count that rounds to target.
+  let extraReviews = Math.max(0, Math.floor(RATIO_TARGET * authored - reviewed) - 1);
+  while (rounded(reviewed + extraReviews, authored) < RATIO_TARGET) extraReviews++;
+  while (extraReviews > 0 && rounded(reviewed + extraReviews - 1, authored) >= RATIO_TARGET) extraReviews--;
+  return extraReviews;
 }
 
 /** `minReviews` is superMinReviews() for the range being shown. */

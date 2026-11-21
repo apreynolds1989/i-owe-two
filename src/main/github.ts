@@ -10,8 +10,9 @@ export const ENDPOINT = 'https://api.github.com/graphql';
 /** Sends one HTTPS request. Provided by transport.ts (Chromium's network stack and the OS certificate store). */
 export type Transport = (url: string, init: RequestInit) => Promise<Response>;
 let transport: Transport | null = null;
-export const setTransport = (t: Transport) => {
-  transport = t;
+/** Installs the network call (transport.ts in the app, a fake in scripts/check.ts). */
+export const setTransport = (next: Transport) => {
+  transport = next;
 };
 
 export interface Actor {
@@ -20,9 +21,10 @@ export interface Actor {
 }
 
 /** Login of a PR/review author. Deleted users come back as null ("ghost"); some bots lack the [bot] suffix. */
-export const actorLogin = (a: Actor | null) =>
-  !a ? 'ghost' : a.__typename === 'Bot' && !a.login.endsWith('[bot]') ? `${a.login}[bot]` : a.login;
-export const actorIsBot = (a: Actor | null) => !!a && (a.__typename === 'Bot' || a.login.endsWith('[bot]'));
+export const actorLogin = (actor: Actor | null) =>
+  !actor ? 'ghost' : actor.__typename === 'Bot' && !actor.login.endsWith('[bot]') ? `${actor.login}[bot]` : actor.login;
+/** A bot account, whether GitHub types it as one or it only carries the [bot] suffix. */
+export const actorIsBot = (actor: Actor | null) => !!actor && (actor.__typename === 'Bot' || actor.login.endsWith('[bot]'));
 
 /** Every query this app can send. Person-supplied values only ever travel as variables. */
 export const QUERIES = Object.freeze({
@@ -71,23 +73,36 @@ export class GitHubError extends Error {
 
 /** Thrown when a refresh was cancelled (token removed, new settings): not an error to show. */
 export class CancelledError extends Error {}
+const cancelled = () => new CancelledError('Cancelled');
 
-const sleep = (ms: number, signal?: AbortSignal) =>
+/** Waits `ms`, or rejects with CancelledError as soon as `signal` aborts. */
+export const sleep = (ms: number, signal?: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
-    if (signal?.aborted) return reject(new CancelledError('Cancelled'));
-    const id = setTimeout(resolve, ms);
-    signal?.addEventListener('abort', () => (clearTimeout(id), reject(new CancelledError('Cancelled'))), { once: true });
+    if (signal?.aborted) return reject(cancelled());
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => (clearTimeout(timer), reject(cancelled())), { once: true });
   });
+
 const MAX_ATTEMPTS = 3;
+/** Retries wait 1 s, then 2 s (doubling each time). */
+const FIRST_RETRY_DELAY_MS = 1000;
+/** One request that takes longer than this is abandoned (and retried like any network failure). */
+const REQUEST_TIMEOUT_MS = 30_000;
 /** When GitHub gives no reset time for a rate limit, wait at least this long before asking again. */
 const MIN_RATE_LIMIT_WAIT_MS = 60_000;
 
-function rateLimitError(res: Response): GitHubError {
-  const reset = Number(res.headers.get('x-ratelimit-reset') ?? 0) * 1000;
-  const retryAfter = Number(res.headers.get('retry-after') ?? 0) * 1000;
-  const retryAt = Math.max(Date.now() + MIN_RATE_LIMIT_WAIT_MS, reset, retryAfter ? Date.now() + retryAfter : 0);
-  const mins = Math.max(1, Math.ceil((retryAt - Date.now()) / 60_000));
-  return new GitHubError(`GitHub's rate limit was reached. Try again in about ${mins} minute${mins === 1 ? '' : 's'}.`, retryAt);
+/** "GitHub's rate limit was reached. Try again in about N minutes." for a retry time (epoch ms). */
+export function rateLimitMessage(retryAt: number): string {
+  const minutes = Math.max(1, Math.ceil((retryAt - Date.now()) / 60_000));
+  return `GitHub's rate limit was reached. Try again in about ${minutes} minute${minutes === 1 ? '' : 's'}.`;
+}
+
+/** A rate-limit error that waits for the latest of GitHub's reset time, its Retry-After, or a minute. */
+function rateLimitError(response: Response): GitHubError {
+  const resetAt = Number(response.headers.get('x-ratelimit-reset') ?? 0) * 1000;
+  const retryAfterMs = Number(response.headers.get('retry-after') ?? 0) * 1000;
+  const retryAt = Math.max(Date.now() + MIN_RATE_LIMIT_WAIT_MS, resetAt, retryAfterMs ? Date.now() + retryAfterMs : 0);
+  return new GitHubError(rateLimitMessage(retryAt), retryAt);
 }
 
 /**
@@ -105,12 +120,12 @@ export async function graphql<T>(
   let lastProblem = 'GitHub could not be reached.';
 
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    if (attempt > 0) await sleep(1000 * 2 ** (attempt - 1), signal);
-    if (signal?.aborted) throw new CancelledError('Cancelled');
+    if (attempt > 0) await sleep(FIRST_RETRY_DELAY_MS * 2 ** (attempt - 1), signal);
+    if (signal?.aborted) throw cancelled();
 
-    let res: Response;
+    let response: Response;
     try {
-      res = await transport(ENDPOINT, {
+      response = await transport(ENDPOINT, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -119,39 +134,39 @@ export async function graphql<T>(
         },
         body: JSON.stringify({ query: doc, variables }),
         redirect: 'error', // never send the token anywhere else
-        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]) : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
     } catch (err) {
-      if (signal?.aborted) throw new CancelledError('Cancelled');
+      if (signal?.aborted) throw cancelled();
       lastProblem = `Couldn't reach GitHub (${redact(err instanceof Error ? err.message : String(err))}).`;
       continue;
     }
 
-    if (res.status === 401) {
+    if (response.status === 401) {
       throw new GitHubError('GitHub rejected the token. It may have expired or been revoked. Use "Change token" to add a new one.');
     }
-    if (res.status === 429 || (res.status === 403 && (res.headers.get('x-ratelimit-remaining') === '0' || res.headers.has('retry-after')))) {
-      throw rateLimitError(res);
+    if (response.status === 429 || (response.status === 403 && (response.headers.get('x-ratelimit-remaining') === '0' || response.headers.has('retry-after')))) {
+      throw rateLimitError(response);
     }
-    if (res.status === 403) {
-      throw new GitHubError(await safeMessage(res, 'GitHub refused the request (403). The token may not have access to these repositories.'));
+    if (response.status === 403) {
+      throw new GitHubError(await safeMessage(response, 'GitHub refused the request (403). The token may not have access to these repositories.'));
     }
-    if (res.status >= 500) {
-      lastProblem = `GitHub had a problem (HTTP ${res.status}).`;
+    if (response.status >= 500) {
+      lastProblem = `GitHub had a problem (HTTP ${response.status}).`;
       continue;
     }
-    if (!res.ok) throw new GitHubError(await safeMessage(res, `GitHub returned HTTP ${res.status}.`));
+    if (!response.ok) throw new GitHubError(await safeMessage(response, `GitHub returned HTTP ${response.status}.`));
 
     let json: { data?: T; errors?: Array<{ type?: string; message: string }> };
     try {
-      json = (await res.json()) as typeof json;
+      json = (await response.json()) as typeof json;
     } catch {
       lastProblem = 'GitHub sent an incomplete response.';
       continue;
     }
     if (json.errors?.length) {
-      if (json.errors.some((e) => e.type === 'RATE_LIMITED')) throw rateLimitError(res);
-      throw new GitHubError(redact(json.errors.map((e) => e.message).join('; ')).slice(0, 500));
+      if (json.errors.some((error) => error.type === 'RATE_LIMITED')) throw rateLimitError(response);
+      throw new GitHubError(redact(json.errors.map((error) => error.message).join('; ')).slice(0, 500));
     }
     if (!json.data) {
       lastProblem = 'GitHub sent an empty response.';
@@ -163,9 +178,9 @@ export async function graphql<T>(
 }
 
 /** GitHub's own error message if it sent one (redacted and length-limited), else the fallback. */
-async function safeMessage(res: Response, fallback: string): Promise<string> {
+async function safeMessage(response: Response, fallback: string): Promise<string> {
   try {
-    const body = (await res.json()) as { message?: unknown };
+    const body = (await response.json()) as { message?: unknown };
     if (typeof body.message === 'string' && body.message) return redact(body.message).slice(0, 300);
   } catch {
     // not JSON; use the fallback

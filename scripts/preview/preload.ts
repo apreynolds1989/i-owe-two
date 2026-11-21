@@ -1,12 +1,12 @@
 // Dev-only fake bridge for scripts/preview: same shape as the real one, fixed made-up data, no token,
 // no GitHub. Each screenshot asks the preview main process which scenario to show.
 import { contextBridge, ipcRenderer } from 'electron';
-import type { AppState, RefreshResult, SprintBridge, SprintMetrics } from '../../src/shared/types';
+import type { AppBridge, AppState, RefreshResult, ReviewMetrics } from '../../src/shared/types';
 
-const scenario = ipcRenderer.invoke('preview:scenario') as Promise<{ state: AppState; metrics?: SprintMetrics }>;
+const scenario = ipcRenderer.invoke('preview:scenario') as Promise<{ state: AppState; metrics?: ReviewMetrics }>;
 const noop = () => undefined;
 
-const bridge: SprintBridge = {
+const bridge: AppBridge = {
   getState: () => scenario.then((s) => s.state),
   saveToken: async () => ({ ok: true }),
   clearToken: async () => undefined,

@@ -1,12 +1,14 @@
 // Fetches the numbers from GitHub for the chosen owner, person and dates.
-import type { SprintWindow } from '../shared/args';
-import type { Metric, Partner, PrSummary, SprintMetrics, SprintSettings } from '../shared/types';
-import { actorIsBot, actorLogin, CancelledError, GitHubError, graphql, QUERIES, type Actor } from './github';
+import type { DateWindow } from '../shared/dateWindow';
+import { REVIEWERS_NEEDED } from '../shared/ratio';
+import type { Metric, OwnerType, Partner, PrSummary, ReviewMetrics, TrackedSettings } from '../shared/types';
+import { actorIsBot, actorLogin, GitHubError, graphql, QUERIES, sleep, type Actor } from './github';
 import {
-  buildSearchQueries, giveAndTake, hasIgnoredLabel, hasReviewed, humanReviewers, inWindow, makeLocalDate, myReviewState,
-  needingReviewers, REVIEWERS_NEEDED, reviewedInWindow, splitWaiting, type ReviewNode, type SearchQueries,
+  buildSearchQueries, giveAndTake, hasIgnoredLabel, hasReviewed, humanReviewers, inWindow, labelNames, makeLocalDate, myReviewState,
+  needingReviewers, reviewedInWindow, splitWaiting, type ReviewNode, type SearchQueries,
 } from './rules';
 
+/** A pull request as QUERIES.search returns it. */
 interface PrNode {
   number: number;
   title: string;
@@ -25,150 +27,169 @@ interface SearchResponse {
     nodes: Array<PrNode | Record<string, never> | null>;
   };
 }
+/** The PRs one search found, and GitHub's total for it (which can exceed what can be paged through). */
+interface SearchResult {
+  nodes: PrNode[];
+  total: number;
+}
 
+/** Matches `first: 50` in QUERIES.search. */
+const RESULTS_PER_PAGE = 50;
 /** GitHub search never returns more than 1,000 results for one query (20 pages of 50). */
 const MAX_PAGES = 20;
 /** Pause between search requests, to stay well clear of GitHub's secondary rate limits. */
 const REQUEST_GAP_MS = 300;
 
-export const pause = (signal?: AbortSignal) =>
-  new Promise<void>((resolve, reject) => {
-    if (signal?.aborted) return reject(new CancelledError('Cancelled'));
-    const id = setTimeout(resolve, REQUEST_GAP_MS);
-    signal?.addEventListener('abort', () => (clearTimeout(id), reject(new CancelledError('Cancelled'))), { once: true });
-  });
+/** The polite gap between two requests. Rejects with CancelledError if the refresh is cancelled. */
+export const pause = (signal?: AbortSignal) => sleep(REQUEST_GAP_MS, signal);
 
-/** Every PR matching `q`, up to GitHub's 1,000-result cap. Pages are fetched one at a time. */
-async function searchPrs(token: string, q: string, signal?: AbortSignal): Promise<{ nodes: PrNode[]; total: number }> {
+/** Every PR matching `query`, up to GitHub's 1,000-result cap. Pages are fetched one at a time. */
+async function searchPrs(token: string, query: string, signal?: AbortSignal): Promise<SearchResult> {
   const nodes: PrNode[] = [];
   let after: string | null = null;
   let total = 0;
   for (let page = 0; page < MAX_PAGES; page++) {
     if (page > 0) await pause(signal);
-    const data: SearchResponse = await graphql<SearchResponse>(token, QUERIES.search, { q, after }, signal);
+    const data: SearchResponse = await graphql<SearchResponse>(token, QUERIES.search, { q: query, after }, signal);
     total = data.search.issueCount;
-    for (const n of data.search.nodes) if (n && 'number' in n) nodes.push(n as PrNode);
+    for (const node of data.search.nodes) if (node && 'number' in node) nodes.push(node as PrNode);
     if (!data.search.pageInfo.hasNextPage) break;
     after = data.search.pageInfo.endCursor;
   }
   return { nodes, total };
 }
 
+/** The login of the token's owner. Also proves the token works. */
 export async function getViewerLogin(token: string): Promise<string> {
   return (await graphql<{ viewer: { login: string } }>(token, QUERIES.viewer)).viewer.login;
 }
 
 /** Whether `login` is a user or an organization (decides between user: and org: searches). */
-export async function getOwnerType(token: string, login: string, signal?: AbortSignal): Promise<'User' | 'Organization'> {
+export async function getOwnerType(token: string, login: string, signal?: AbortSignal): Promise<OwnerType> {
   const data = await graphql<{ repositoryOwner: { __typename: string } | null }>(token, QUERIES.owner, { login }, signal);
   const type = data.repositoryOwner?.__typename;
   if (type === 'User' || type === 'Organization') return type;
   throw new GitHubError(`There's no GitHub user or organization called "${login}".`);
 }
 
-const summary = (n: PrNode, extra: Partial<PrSummary> = {}): PrSummary => ({
-  repo: n.repository.nameWithOwner,
-  number: n.number,
-  title: n.title,
-  url: n.url,
-  author: actorLogin(n.author),
-  createdAt: n.createdAt,
+const toPrSummary = (pr: PrNode, extra: Partial<PrSummary> = {}): PrSummary => ({
+  repo: pr.repository.nameWithOwner,
+  number: pr.number,
+  title: pr.title,
+  url: pr.url,
+  author: actorLogin(pr.author),
+  createdAt: pr.createdAt,
   ...extra,
 });
 
 /** A list built from one or more searches: capped if any of them hit GitHub's 1,000-result limit. */
-const metric = (prs: PrSummary[], ...searches: Array<{ total: number }>): Metric => ({
+const toMetric = (prs: PrSummary[], ...searches: SearchResult[]): Metric => ({
   count: prs.length,
   prs,
-  capped: searches.some((s) => s.total > MAX_PAGES * 50),
-  searchTotal: searches.reduce((sum, s) => sum + s.total, 0),
+  capped: searches.some((search) => search.total > MAX_PAGES * RESULTS_PER_PAGE),
+  searchTotal: searches.reduce((sum, search) => sum + search.total, 0),
 });
 
 const newestFirst = (a: PrNode, b: PrNode) => b.createdAt.localeCompare(a.createdAt);
 const oldestFirst = (a: PrNode, b: PrNode) => a.createdAt.localeCompare(b.createdAt);
 
 /** Open PRs with their distinct human reviewers counted, longest-waiting first. */
-const withReviewers = (nodes: PrNode[]) =>
-  [...nodes].sort(oldestFirst).map((n) => ({ n, reviewers: humanReviewers(actorLogin(n.author), n.reviews.nodes).length }));
+const withReviewerCounts = (prs: PrNode[]) =>
+  [...prs].sort(oldestFirst).map((pr) => ({ pr, reviewerCount: humanReviewers(actorLogin(pr.author), pr.reviews.nodes).length }));
 
 /** The two searches the ratio needs: PRs authored and PRs reviewed in the window. */
-async function authoredAndReviewed(token: string, settings: SprintSettings, w: SprintWindow, q: SearchQueries, timezone: string, signal?: AbortSignal) {
+async function authoredAndReviewed(
+  token: string,
+  settings: TrackedSettings,
+  window: DateWindow,
+  queries: SearchQueries,
+  timezone: string,
+  signal?: AbortSignal,
+) {
   const toLocal = makeLocalDate(timezone);
-  const authoredRaw = await searchPrs(token, q.authored, signal);
+  const authoredSearch = await searchPrs(token, queries.authored, signal);
   await pause(signal);
-  const reviewedRaw = await searchPrs(token, q.reviewed, signal);
-  const authored = authoredRaw.nodes.filter((n) => inWindow(toLocal(n.createdAt), w)).sort(newestFirst);
-  const reviewed = reviewedRaw.nodes.filter((n) => reviewedInWindow(settings.login, n.reviews.nodes, w, toLocal)).sort(newestFirst);
-  return { authored, authoredRaw, reviewed, reviewedRaw };
+  const reviewedSearch = await searchPrs(token, queries.reviewed, signal);
+  // The searches are a day wider than the window (UTC vs local dates): keep only what's really inside it.
+  const authored = authoredSearch.nodes.filter((pr) => inWindow(toLocal(pr.createdAt), window)).sort(newestFirst);
+  const reviewed = reviewedSearch.nodes
+    .filter((pr) => reviewedInWindow(settings.login, pr.reviews.nodes, window, toLocal))
+    .sort(newestFirst);
+  return { authored, authoredSearch, reviewed, reviewedSearch };
 }
 
 /** Just the counts and partners, for locking in a period that has ended (two searches instead of six). */
 export async function getPeriodCounts(
   token: string,
-  settings: SprintSettings,
-  w: SprintWindow,
-  ownerType: 'User' | 'Organization',
+  settings: TrackedSettings,
+  window: DateWindow,
+  ownerType: OwnerType,
   timezone: string,
   signal?: AbortSignal,
 ): Promise<{ authored: number; reviewed: number; partners: Partner[] }> {
-  const q = buildSearchQueries(ownerType, settings.owner, settings.login, w);
-  const r = await authoredAndReviewed(token, settings, w, q, timezone, signal);
-  return { authored: r.authored.length, reviewed: r.reviewed.length, partners: giveAndTake(settings.login, r.reviewed, r.authored) };
+  const queries = buildSearchQueries(ownerType, settings.owner, settings.login, window);
+  const counted = await authoredAndReviewed(token, settings, window, queries, timezone, signal);
+  return {
+    authored: counted.authored.length,
+    reviewed: counted.reviewed.length,
+    partners: giveAndTake(settings.login, counted.reviewed, counted.authored),
+  };
 }
 
-export async function getSprintMetrics(
+/** Every number and list on the panel for these settings and dates (six searches, one at a time). */
+export async function getMetrics(
   token: string,
-  settings: SprintSettings,
-  w: SprintWindow,
-  ownerType: 'User' | 'Organization',
+  settings: TrackedSettings,
+  window: DateWindow,
+  ownerType: OwnerType,
   timezone: string,
   signal?: AbortSignal,
-): Promise<SprintMetrics> {
-  const q = buildSearchQueries(ownerType, settings.owner, settings.login, w);
+): Promise<ReviewMetrics> {
+  const queries = buildSearchQueries(ownerType, settings.owner, settings.login, window);
 
   // One search at a time, with a short pause between requests: gentle on GitHub's rate limits.
-  const r = await authoredAndReviewed(token, settings, w, q, timezone, signal);
+  const counted = await authoredAndReviewed(token, settings, window, queries, timezone, signal);
   await pause(signal);
-  const openRaw = await searchPrs(token, q.open, signal);
+  const openSearch = await searchPrs(token, queries.open, signal);
   await pause(signal);
-  const waitingRaw = await searchPrs(token, q.waiting, signal);
+  const requestedSearch = await searchPrs(token, queries.waiting, signal);
   await pause(signal);
-  const involvedRaw = await searchPrs(token, q.involved, signal);
+  const involvedSearch = await searchPrs(token, queries.involved, signal);
   await pause(signal);
-  const mineRaw = await searchPrs(token, q.mine, signal);
+  const mineSearch = await searchPrs(token, queries.mine, signal);
 
   // A PR this person has already reviewed (any state) is no longer one they could pick up: it's either
   // done (approved) or under "Waiting on you". PRs merely requested from them stay here as well.
-  const needsReviewers = withReviewers(
-    openRaw.nodes
-      .filter((n) => !actorIsBot(n.author))
-      .filter((n) => !hasIgnoredLabel(n.labels.nodes.map((l) => l.name), settings.ignoreLabels))
-      .filter((n) => !hasReviewed(settings.login, n.reviews.nodes)),
+  const needsReviewers = withReviewerCounts(
+    openSearch.nodes
+      .filter((pr) => !actorIsBot(pr.author))
+      .filter((pr) => !hasIgnoredLabel(labelNames(pr), settings.ignoreLabels))
+      .filter((pr) => !hasReviewed(settings.login, pr.reviews.nodes)),
   )
-    .filter(({ reviewers }) => reviewers < REVIEWERS_NEEDED)
-    .map(({ n, reviewers }) => summary(n, { reviewerCount: reviewers, labels: n.labels.nodes.map((l) => l.name) }));
+    .filter(({ reviewerCount }) => reviewerCount < REVIEWERS_NEEDED)
+    .map(({ pr, reviewerCount }) => toPrSummary(pr, { reviewerCount, labels: labelNames(pr) }));
 
-  const split = splitWaiting(waitingRaw.nodes, involvedRaw.nodes, settings.login);
-  const waiting = (nodes: PrNode[], section: 'requested' | 'involved') =>
-    withReviewers(nodes).map(({ n, reviewers }) =>
-      summary(n, { reviewerCount: reviewers, section, myReview: myReviewState(settings.login, n.reviews.nodes) ?? undefined }),
+  const split = splitWaiting(requestedSearch.nodes, involvedSearch.nodes, settings.login);
+  const waitingSection = (prs: PrNode[], section: 'requested' | 'involved') =>
+    withReviewerCounts(prs).map(({ pr, reviewerCount }) =>
+      toPrSummary(pr, { reviewerCount, section, myReview: myReviewState(settings.login, pr.reviews.nodes) ?? undefined }),
     );
-  const waitingOnYou = [...waiting(split.requested, 'requested'), ...waiting(split.involved, 'involved')];
-  const yourPrsWaiting = withReviewers(needingReviewers(mineRaw.nodes, settings.ignoreLabels)).map(({ n, reviewers }) =>
-    summary(n, { reviewerCount: reviewers }),
+  const waitingOnYou = [...waitingSection(split.requested, 'requested'), ...waitingSection(split.involved, 'involved')];
+  const yourPrsWaiting = withReviewerCounts(needingReviewers(mineSearch.nodes, settings.ignoreLabels)).map(({ pr, reviewerCount }) =>
+    toPrSummary(pr, { reviewerCount }),
   );
 
   return {
     settings,
-    window: w,
+    window,
     ownerType,
     timezone,
     fetchedAt: new Date().toISOString(),
-    authored: metric(r.authored.map((n) => summary(n)), r.authoredRaw),
-    reviewed: metric(r.reviewed.map((n) => summary(n)), r.reviewedRaw),
-    needsReviewers: metric(needsReviewers, openRaw),
-    waitingOnYou: metric(waitingOnYou, waitingRaw, involvedRaw),
-    yourPrsWaiting: metric(yourPrsWaiting, mineRaw),
-    partners: giveAndTake(settings.login, r.reviewed, r.authored),
+    authored: toMetric(counted.authored.map((pr) => toPrSummary(pr)), counted.authoredSearch),
+    reviewed: toMetric(counted.reviewed.map((pr) => toPrSummary(pr)), counted.reviewedSearch),
+    needsReviewers: toMetric(needsReviewers, openSearch),
+    waitingOnYou: toMetric(waitingOnYou, requestedSearch, involvedSearch),
+    yourPrsWaiting: toMetric(yourPrsWaiting, mineSearch),
+    partners: giveAndTake(settings.login, counted.reviewed, counted.authored),
   };
 }

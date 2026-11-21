@@ -5,9 +5,10 @@ import { RATIO_TARGET, type RatioStatus } from '../shared/ratio';
 import type { Recap } from '../shared/recap';
 import { shortRange } from './dates';
 import { CloseIcon } from './icons';
+import { RatioChip } from './RatioChip';
 
 /** What one period of each range is called, for "3 weeks in a row". */
-const UNIT: Record<RangeKind, [string, string]> = {
+const PERIOD_NOUNS: Record<RangeKind, [singular: string, plural: string]> = {
   day: ['day', 'days'],
   week: ['week', 'weeks'],
   twoWeeks: ['two-week period', 'two-week periods'],
@@ -15,18 +16,19 @@ const UNIT: Record<RangeKind, [string, string]> = {
   year: ['year', 'years'],
 };
 /** Plain status words: the live label's "review N more PRs" hint means nothing once a period is over. */
-const STATUS: Record<Exclude<RatioStatus, 'none'>, string> = {
+const STATUS_WORDS: Record<Exclude<RatioStatus, 'none'>, string> = {
   super: 'Super-powered ⚡',
   good: 'On target',
   warn: 'Just under target',
   bad: 'Below target',
 };
-const people = (n: number) => `${n} ${n === 1 ? 'person' : 'people'}`;
+const people = (count: number) => `${count} ${count === 1 ? 'person' : 'people'}`;
 
-function deltaText(delta: number | null, unit: string): string | null {
+/** "▲ 0.50 from the week before", or null when there's nothing to compare with. */
+function deltaText(delta: number | null, periodNoun: string): string | null {
   if (delta === null) return null;
-  if (delta === 0) return `same as the ${unit} before`;
-  return `${delta > 0 ? '▲' : '▼'} ${Math.abs(delta).toFixed(2)} from the ${unit} before`;
+  if (delta === 0) return `same as the ${periodNoun} before`;
+  return `${delta > 0 ? '▲' : '▼'} ${Math.abs(delta).toFixed(2)} from the ${periodNoun} before`;
 }
 
 /**
@@ -35,16 +37,16 @@ function deltaText(delta: number | null, unit: string): string | null {
  */
 export function RecapCard(props: { recap: Recap; kind: RangeKind; title?: string; onDismiss?: () => void }) {
   const { recap, kind, title, onDismiss } = props;
-  const { period: p, ratio, delta, streak, topPartner } = recap;
-  const [one, many] = UNIT[kind];
-  const change = deltaText(delta, one);
+  const { period, ratio, delta, streak, topPartner } = recap;
+  const [periodNoun, periodNounPlural] = PERIOD_NOUNS[kind];
+  const change = deltaText(delta, periodNoun);
 
   return (
-    <section className={`recap${onDismiss ? ' recap-banner' : ''}`} aria-label={`Recap for ${shortRange(p.from, p.to)}`}>
+    <section className={`recap${onDismiss ? ' recap-banner' : ''}`} aria-label={`Recap for ${shortRange(period.from, period.to)}`}>
       {onDismiss && (
         <div className="recap-head">
           <span className="recap-title">
-            {title ?? 'Recap'} <span className="muted">· {shortRange(p.from, p.to)}</span>
+            {title ?? 'Recap'} <span className="muted">· {shortRange(period.from, period.to)}</span>
           </span>
           <button className="icon-button small-icon" onClick={onDismiss} title="Dismiss (it stays in History)" aria-label="Dismiss recap">
             <CloseIcon />
@@ -52,22 +54,24 @@ export function RecapCard(props: { recap: Recap; kind: RangeKind; title?: string
         </div>
       )}
       <div className="recap-ratio">
-        <span className={`ratio-chip chip-${ratio.status}`}>{ratio.display}</span>
-        <span>{ratio.status === 'none' ? (p.reviewed > 0 ? 'Reviewed without opening any PRs' : 'No PRs opened') : STATUS[ratio.status]}</span>
+        <RatioChip ratio={ratio} />
+        <span>
+          {ratio.status === 'none' ? (period.reviewed > 0 ? 'Reviewed without opening any PRs' : 'No PRs opened') : STATUS_WORDS[ratio.status]}
+        </span>
       </div>
       <ul className="recap-lines">
         <li>
-          {p.reviewed} reviewed · {p.authored} authored{change && <span className="muted"> · {change}</span>}
+          {period.reviewed} reviewed · {period.authored} authored{change && <span className="muted"> · {change}</span>}
         </li>
         {streak >= 2 && (
           <li>
-            🔥 {streak} {many} in a row at {RATIO_TARGET.toFixed(1)}+
+            🔥 {streak} {periodNounPlural} in a row at {RATIO_TARGET.toFixed(1)}+
           </li>
         )}
-        {streak === 1 && <li>On target this {one}</li>}
-        {(p.reviewedFor !== undefined || p.reviewedBy !== undefined) && (
+        {streak === 1 && <li>On target this {periodNoun}</li>}
+        {(period.reviewedFor !== undefined || period.reviewedBy !== undefined) && (
           <li>
-            Reviewed for {people(p.reviewedFor ?? 0)} · {people(p.reviewedBy ?? 0)} reviewed yours
+            Reviewed for {people(period.reviewedFor ?? 0)} · {people(period.reviewedBy ?? 0)} reviewed yours
           </li>
         )}
         {topPartner && (
@@ -75,7 +79,7 @@ export function RecapCard(props: { recap: Recap; kind: RangeKind; title?: string
             Traded most with @{topPartner.login} <span className="muted">(you {topPartner.gave} · them {topPartner.got})</span>
           </li>
         )}
-        {!p.final && <li className="muted">Partial: its final numbers couldn’t be fetched</li>}
+        {!period.final && <li className="muted">Partial: its final numbers couldn’t be fetched</li>}
       </ul>
     </section>
   );

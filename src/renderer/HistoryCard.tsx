@@ -1,26 +1,28 @@
+// The History card: the tracked range's past periods (each opens its recap), plus any archived histories.
 import { useState } from 'react';
-import type { SprintWindow } from '../shared/args';
+import type { DateWindow } from '../shared/dateWindow';
 import { periodKey, periodRatio, type HistoryView, type Period, type Series } from '../shared/history';
-import { RANGE_LABELS } from '../shared/range';
+import { RANGE_LABELS, sameWindow } from '../shared/range';
 import { periodRecap } from '../shared/recap';
 import { shortRange } from './dates';
 import { ChevronIcon, HistoryIcon } from './icons';
+import { RatioChip } from './RatioChip';
 import { RecapCard } from './RecapCard';
 
 /**
  * One period: dates, counts and its ratio (judged with the super minimum for its own length). A period
  * that has ended opens its recap; the one in progress has nothing to recap yet.
  */
-function PeriodRow({ p, series, current }: { p: Period; series: Series; current: SprintWindow | null }) {
+function PeriodRow({ period, series, current }: { period: Period; series: Series; current: DateWindow | null }) {
   const [open, setOpen] = useState(false);
-  const r = periodRatio(p);
-  const inProgress = !!current && p.from === current.from && p.to === current.to;
-  const note = inProgress ? 'in progress' : p.final ? null : 'partial';
+  const ratio = periodRatio(period);
+  const inProgress = sameWindow(period, current);
+  const note = inProgress ? 'in progress' : period.final ? null : 'partial';
   const summary = (
     <>
       <span className="history-dates">
         <span>
-          {shortRange(p.from, p.to)}
+          {shortRange(period.from, period.to)}
           {note && (
             <span className="history-note" title={note === 'partial' ? 'This period ended before its final numbers could be fetched' : undefined}>
               {' '}
@@ -29,12 +31,10 @@ function PeriodRow({ p, series, current }: { p: Period; series: Series; current:
           )}
         </span>
         <span className="history-counts">
-          {p.reviewed} reviewed · {p.authored} authored
+          {period.reviewed} reviewed · {period.authored} authored
         </span>
       </span>
-      <span className={`ratio-chip chip-${r.status}`} title={r.label}>
-        {r.display}
-      </span>
+      <RatioChip ratio={ratio} title={ratio.label} />
     </>
   );
   if (inProgress) return <li className="history-row">{summary}</li>;
@@ -43,22 +43,23 @@ function PeriodRow({ p, series, current }: { p: Period; series: Series; current:
       <button className="history-row history-button" onClick={() => setOpen(!open)} aria-expanded={open} title="Show this period’s recap">
         {summary}
       </button>
-      {open && <RecapCard recap={periodRecap(series, p)} kind={series.kind} />}
+      {open && <RecapCard recap={periodRecap(series, period)} kind={series.kind} />}
     </li>
   );
 }
 
-const newestFirst = (s: Series) => [...s.periods].reverse();
-const seriesTitle = (s: Series) => `${RANGE_LABELS[s.kind]} from ${shortRange(s.start, s.start)} · @${s.login} in ${s.owner}`;
+const newestFirst = (series: Series) => [...series.periods].reverse();
+const seriesTitle = (series: Series) =>
+  `${RANGE_LABELS[series.kind]} from ${shortRange(series.start, series.start)} · @${series.login} in ${series.owner}`;
 
 /** The tracked range's past periods, plus any archived histories. Read-only; counts are stored on this computer. */
-export function HistoryCard({ history, current }: { history: HistoryView; current: SprintWindow | null }) {
+export function HistoryCard({ history, current }: { history: HistoryView; current: DateWindow | null }) {
   const [expanded, setExpanded] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const periods = history.active ? newestFirst(history.active) : [];
   // The last period that has ended, if any; the one in progress is shown in the list.
-  const last = periods.find((p) => !current || p.to < current.from);
-  const lastRatio = last ? periodRatio(last) : null;
+  const lastEnded = periods.find((period) => !current || period.to < current.from);
+  const lastRatio = lastEnded ? periodRatio(lastEnded) : null;
   const hasAnything = periods.length > 0 || history.archived.length > 0;
 
   return (
@@ -78,16 +79,12 @@ export function HistoryCard({ history, current }: { history: HistoryView; curren
           <span className="metric-note">
             {history.readOnly
               ? 'Saved by a newer version of IO2'
-              : last
-                ? `Last period: ${shortRange(last.from, last.to)}`
+              : lastEnded
+                ? `Last period: ${shortRange(lastEnded.from, lastEnded.to)}`
                 : 'Builds up as your range rolls over'}
           </span>
         </span>
-        {lastRatio && (
-          <span className={`ratio-chip chip-${lastRatio.status}`} title={lastRatio.label}>
-            {lastRatio.display}
-          </span>
-        )}
+        {lastRatio && <RatioChip ratio={lastRatio} title={lastRatio.label} />}
         <span className="metric-chevron">{(hasAnything || history.readOnly) && <ChevronIcon open={expanded} />}</span>
       </button>
       {expanded && (
@@ -99,8 +96,8 @@ export function HistoryCard({ history, current }: { history: HistoryView; curren
           )}
           {history.active && periods.length > 0 && (
             <ul className="history-list">
-              {periods.map((p) => (
-                <PeriodRow key={periodKey(p)} p={p} series={history.active!} current={current} />
+              {periods.map((period) => (
+                <PeriodRow key={periodKey(period)} period={period} series={history.active!} current={current} />
               ))}
             </ul>
           )}
@@ -110,15 +107,15 @@ export function HistoryCard({ history, current }: { history: HistoryView; curren
                 {showArchived ? 'Hide' : 'Show'} archived ({history.archived.length})
               </button>
               {showArchived &&
-                history.archived.map((s) => (
-                  <div key={`${s.owner}|${s.login}|${s.kind}|${s.start}`} className="archived-series">
+                history.archived.map((series) => (
+                  <div key={`${series.owner}|${series.login}|${series.kind}|${series.start}`} className="archived-series">
                     <p className="archived-title">
-                      {seriesTitle(s)}
-                      <span className="muted"> · archived {new Date(s.archivedAt!).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                      {seriesTitle(series)}
+                      <span className="muted"> · archived {new Date(series.archivedAt!).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
                     </p>
                     <ul className="history-list">
-                      {newestFirst(s).map((p) => (
-                        <PeriodRow key={periodKey(p)} p={p} series={s} current={null} />
+                      {newestFirst(series).map((period) => (
+                        <PeriodRow key={periodKey(period)} period={period} series={series} current={null} />
                       ))}
                     </ul>
                   </div>
