@@ -1,5 +1,6 @@
+// The Start screen: where to look, whose PRs to count, the tracked range, and labels to ignore.
 import { useState, type FormEvent } from 'react';
-import { isValidDate } from '../shared/args';
+import { isValidDate } from '../shared/dateWindow';
 import { periodContaining, RANGE_KINDS, RANGE_LABELS, shiftDay, validRange, type RangeKind } from '../shared/range';
 import type { AppState, HistoryChoice, StartInput } from '../shared/types';
 import { isValidLogin, parseLabels } from '../shared/validate';
@@ -10,34 +11,37 @@ type Form = Omit<StartInput, 'historyChoice'>;
 /** Defaults: the last values used, or the token owner and a week starting today. */
 function defaults(state: AppState): Form {
   if (state.settings) {
-    const s = state.settings;
-    return { owner: s.owner, login: s.login, kind: s.range.kind, start: s.range.start, ignoreLabels: s.ignoreLabels.join(', ') };
+    const { owner, login, range, ignoreLabels } = state.settings;
+    return { owner, login, kind: range.kind, start: range.start, ignoreLabels: ignoreLabels.join(', ') };
   }
   const me = state.viewerLogin ?? '';
   return { owner: me, login: me, kind: 'week', start: localToday(), ignoreLabels: '' };
 }
 
 /** "Current: Nov 17 – 23 · next starts Nov 24" for a valid range, else null. */
-function preview(form: Form): string | null {
+function rangePreview(form: Form): string | null {
   const range = validRange({ kind: form.kind, start: form.start });
   if (!range) return null;
-  const now = periodContaining(range, localToday());
+  const current = periodContaining(range, localToday());
   if (range.kind === 'day') return 'Today only, starting again each day at midnight.';
-  return `Current: ${shortRange(now.from, now.to)} · next starts ${shortRange(shiftDay(now.to, 1), shiftDay(now.to, 1))}.`;
+  const nextStart = shiftDay(current.to, 1);
+  return `Current: ${shortRange(current.from, current.to)} · next starts ${shortRange(nextStart, nextStart)}.`;
 }
 
+/** The Start screen. Checks the form for quick feedback; the main process checks everything again on save. */
 export function StartForm({ state }: { state: AppState }) {
   const [form, setForm] = useState(() => defaults(state));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   /** Set when saving would retire existing history: the person picks archive, delete or cancel. */
   const [choice, setChoice] = useState<HistoryChoice | null>(null);
-  const set = (key: keyof Form) => (e: { target: { value: string } }) => {
-    setForm({ ...form, [key]: e.target.value });
+  /** An onChange handler for one field. Any edit drops a pending history question (it was for the old values). */
+  const updateField = (key: keyof Form) => (event: { target: { value: string } }) => {
+    setForm({ ...form, [key]: event.target.value });
     setChoice(null);
   };
 
-  async function send(historyChoice?: 'archive' | 'delete') {
+  async function submitSettings(historyChoice?: 'archive' | 'delete') {
     setBusy(true);
     setError(null);
     try {
@@ -60,10 +64,10 @@ export function StartForm({ state }: { state: AppState }) {
     if (!isValidDate(form.start) || !validRange({ kind: form.kind, start: form.start })) return setError('Choose a valid start date.');
     const labels = parseLabels(form.ignoreLabels);
     if (!Array.isArray(labels)) return setError(labels.error);
-    void send();
+    void submitSettings();
   }
 
-  const hint = preview(form);
+  const hint = rangePreview(form);
 
   return (
     <div className="screen">
@@ -77,28 +81,28 @@ export function StartForm({ state }: { state: AppState }) {
       <form className="card form" onSubmit={submit}>
         <label className="field">
           <span>Where</span>
-          <input value={form.owner} onChange={set('owner')} placeholder="organization or username" spellCheck={false} />
+          <input value={form.owner} onChange={updateField('owner')} placeholder="organization or username" spellCheck={false} />
           <small className="muted">The organization (or your username) your token was created for.</small>
         </label>
         <label className="field">
           <span>GitHub user</span>
-          <input value={form.login} onChange={set('login')} placeholder="username" spellCheck={false} />
+          <input value={form.login} onChange={updateField('login')} placeholder="username" spellCheck={false} />
           <small className="muted">Whose PRs to count. Defaults to you.</small>
         </label>
         <div className="field-row">
           <label className="field">
             <span>Range</span>
-            <select value={form.kind} onChange={set('kind')}>
-              {RANGE_KINDS.map((k: RangeKind) => (
-                <option key={k} value={k}>
-                  {RANGE_LABELS[k]}
+            <select value={form.kind} onChange={updateField('kind')}>
+              {RANGE_KINDS.map((kind: RangeKind) => (
+                <option key={kind} value={kind}>
+                  {RANGE_LABELS[kind]}
                 </option>
               ))}
             </select>
           </label>
           <label className="field">
             <span>Starts on</span>
-            <input type="date" value={form.start} onChange={set('start')} />
+            <input type="date" value={form.start} onChange={updateField('start')} />
           </label>
         </div>
         <small className="muted range-preview">
@@ -108,7 +112,7 @@ export function StartForm({ state }: { state: AppState }) {
           <span>
             Ignore PRs labelled <span className="muted">(optional)</span>
           </span>
-          <input value={form.ignoreLabels} onChange={set('ignoreLabels')} placeholder="e.g. do not review, wip" spellCheck={false} />
+          <input value={form.ignoreLabels} onChange={updateField('ignoreLabels')} placeholder="e.g. do not review, wip" spellCheck={false} />
           <small className="muted">Comma-separated. These are left out of "Need reviewers".</small>
         </label>
         {error && (
@@ -126,10 +130,10 @@ export function StartForm({ state }: { state: AppState }) {
               <button type="button" className="button ghost" onClick={() => setChoice(null)} disabled={busy}>
                 Cancel
               </button>
-              <button type="button" className="button ghost danger" onClick={() => void send('delete')} disabled={busy}>
+              <button type="button" className="button ghost danger" onClick={() => void submitSettings('delete')} disabled={busy}>
                 Delete & start new
               </button>
-              <button type="button" className="button primary" onClick={() => void send('archive')} disabled={busy}>
+              <button type="button" className="button primary" onClick={() => void submitSettings('archive')} disabled={busy}>
                 Archive & start new
               </button>
             </div>

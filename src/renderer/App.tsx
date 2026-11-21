@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+// The panel: header (refresh, pin, theme, menu, hide), then the current screen (token, start or metrics).
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { periodKey } from '../shared/history';
 import { RANGE_LABELS, sameWindow } from '../shared/range';
+import { REVIEWERS_NEEDED } from '../shared/ratio';
 import { pendingRecap, periodRecap } from '../shared/recap';
 import { useClickOutside } from './hooks';
-import type { AppState, SprintMetrics } from '../shared/types';
+import type { ActionResult, AppState, PrListView, ReviewMetrics } from '../shared/types';
 import titleDark from '../../assets/title-dark.png';
 import titleLight from '../../assets/title-light.png';
 import { shortRange } from './dates';
@@ -23,59 +25,95 @@ import { TokenForm } from './TokenForm';
 import { ViewingBar } from './ViewingBar';
 import { YourPrsList } from './YourPrsList';
 
-type MetricKey = 'authored' | 'reviewed' | 'waitingOnYou' | 'yourPrsWaiting' | 'needsReviewers';
-
+/** The metric cards, top to bottom. `showReviewers` adds who opened each PR, when, and its reviewer count. */
 const CARDS = [
-  { key: 'authored', label: 'Authored', icon: <PullRequestIcon />, hint: 'PRs opened in these dates' },
-  { key: 'reviewed', label: 'Reviewed', icon: <ReviewIcon />, hint: "Others' PRs reviewed in these dates (any review state)" },
+  { key: 'authored', label: 'Authored', icon: <PullRequestIcon />, hint: 'PRs opened in these dates', showReviewers: false },
+  {
+    key: 'reviewed',
+    label: 'Reviewed',
+    icon: <ReviewIcon />,
+    hint: "Others' PRs reviewed in these dates (any review state)",
+    showReviewers: false,
+  },
   {
     key: 'waitingOnYou',
     label: 'Waiting on you',
     icon: <WaitingIcon />,
     hint: 'Open, ready PRs on your plate right now. Requested: your review (or your team’s) is requested and pending. Involved: you commented or requested changes and haven’t approved since.',
+    showReviewers: true,
   },
   {
     key: 'yourPrsWaiting',
     label: 'Your PRs waiting',
     icon: <OutboxIcon />,
-    hint: 'Your open, ready PRs with fewer than 2 reviewers (right now, whatever the dates)',
+    hint: `Your open, ready PRs with fewer than ${REVIEWERS_NEEDED} reviewers (right now, whatever the dates)`,
+    showReviewers: true,
   },
   {
     key: 'needsReviewers',
     label: 'Need reviewers',
     icon: <ReviewersIcon />,
-    hint: 'Open, ready PRs with fewer than 2 reviewers that you haven’t reviewed yet (whole organization or account, right now)',
+    hint: `Open, ready PRs with fewer than ${REVIEWERS_NEEDED} reviewers that you haven’t reviewed yet (whole organization or account, right now)`,
+    showReviewers: true,
   },
 ] as const;
-const clock = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-function ago(iso: string) {
-  const mins = Math.round((Date.now() - Date.parse(iso)) / 60_000);
-  return mins < 1 ? 'just now' : mins === 1 ? '1 minute ago' : `${mins} minutes ago`;
+type MetricKey = (typeof CARDS)[number]['key'];
+
+/** The cards that bring their own expanded layout; the others show a plain PR list. */
+function cardBody(key: MetricKey, metrics: ReviewMetrics, prView: PrListView): ReactNode {
+  switch (key) {
+    case 'needsReviewers':
+      return <NeedsReviewersList prs={metrics.needsReviewers.prs} view={prView} />;
+    case 'waitingOnYou':
+      return <WaitingList prs={metrics.waitingOnYou.prs} />;
+    case 'yourPrsWaiting':
+      return <YourPrsList prs={metrics.yourPrsWaiting.prs} />;
+    default:
+      return undefined;
+  }
+}
+
+/** "2:42 PM", in this computer's locale. */
+const clockTime = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+/** "just now", "1 minute ago", "12 minutes ago". */
+function minutesAgo(iso: string) {
+  const minutes = Math.round((Date.now() - Date.parse(iso)) / 60_000);
+  return minutes < 1 ? 'just now' : minutes === 1 ? '1 minute ago' : `${minutes} minutes ago`;
 }
 
 /** Seconds until a manual refresh is allowed again (0 when it is). Ticks once a second while waiting. */
 function useCooldown(availableAt: number): number {
-  const [now, setNow] = useState(Date.now());
+  // The tick only triggers re-renders; the time is read fresh on each render, so the value is right even
+  // when the timer isn't running (e.g. a new cooldown arriving long after the last tick).
+  const [, setTick] = useState(0);
   useEffect(() => {
     if (availableAt <= Date.now()) return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
+    const timer = setInterval(() => {
+      setTick((tick) => tick + 1);
+      // Stop once the cooldown is over: the last tick renders the 0, and nothing needs to tick after it.
+      if (Date.now() >= availableAt) clearInterval(timer);
+    }, 1000);
+    return () => clearInterval(timer);
   }, [availableAt]);
-  return Math.max(0, Math.ceil((availableAt - now) / 1000));
+  return Math.max(0, Math.ceil((availableAt - Date.now()) / 1000));
 }
 
+/**
+ * The whole panel. State comes from the main process (pushed on every change); this component only keeps
+ * the latest numbers, the latest error, and what's open on screen.
+ */
 export function App() {
   const [state, setState] = useState<AppState | null>(null);
-  const [metrics, setMetrics] = useState<SprintMetrics | null>(null);
+  const [metrics, setMetrics] = useState<ReviewMetrics | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [open, setOpen] = useState<MetricKey | null>(null);
+  const [expandedCard, setExpandedCard] = useState<MetricKey | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     void window.sprint.getState().then(setState);
-    const offs = [
+    const unsubscribes = [
       window.sprint.onState(setState),
       window.sprint.onLoading(setLoading),
       window.sprint.onResult((result) => {
@@ -87,7 +125,7 @@ export function App() {
         }
       }),
     ];
-    return () => offs.forEach((off) => off());
+    return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
   }, []);
 
   useClickOutside(menuRef, menuOpen, () => setMenuOpen(false));
@@ -95,13 +133,15 @@ export function App() {
   const cooldown = useCooldown(state?.refreshAvailableAt ?? 0);
   if (!state) return <div className="panel" />;
 
-  // Numbers from older settings, or for other dates than the ones on screen, are hidden.
-  const current =
+  // Numbers from older settings, or for other dates than the ones on screen, are hidden. Comparing as
+  // JSON is safe here: both copies are built by the main process with the same key order.
+  const currentMetrics =
     metrics && state.settings && JSON.stringify(metrics.settings) === JSON.stringify(state.settings) && sameWindow(metrics.window, state.window)
       ? metrics
       : null;
-  const historyAction = (action: () => Promise<{ ok: true } | { ok: false; error: string }>) => () =>
-    void action().then((r) => setError(r.ok ? null : r.error));
+  /** A menu action that may fail: its error replaces (or clears) the one on screen. */
+  const historyAction = (action: () => Promise<ActionResult>) => () =>
+    void action().then((result) => setError(result.ok ? null : result.error));
   const canRefresh = state.view === 'metrics' && !loading && cooldown === 0;
   // The last locked-in period's recap shows by itself until dismissed, but only on your own range.
   const recapPeriod = state.viewing.kind === 'tracked' ? pendingRecap(state.history.active, state.trackedWindow, state.recapSeen) : null;
@@ -230,29 +270,21 @@ export function App() {
               />
             )}
 
-            <RatioCard metrics={current} window={state.window} />
+            <RatioCard metrics={currentMetrics} window={state.window} />
 
             <div className="metric-list">
-              {CARDS.map(({ key, label, icon, hint }) => (
+              {CARDS.map(({ key, label, icon, hint, showReviewers }) => (
                 <MetricCard
                   key={key}
                   icon={icon}
                   label={label}
                   hint={hint}
-                  metric={current?.[key]}
-                  showReviewers={key === 'needsReviewers' || key === 'waitingOnYou' || key === 'yourPrsWaiting'}
-                  expanded={open === key}
-                  onToggle={() => setOpen(open === key ? null : key)}
-                  note={key === 'waitingOnYou' && current ? waitingNote(current.waitingOnYou.prs) : undefined}
-                  children={
-                    !current ? undefined : key === 'needsReviewers' ? (
-                      <NeedsReviewersList prs={current.needsReviewers.prs} view={state.prView} />
-                    ) : key === 'waitingOnYou' ? (
-                      <WaitingList prs={current.waitingOnYou.prs} />
-                    ) : key === 'yourPrsWaiting' ? (
-                      <YourPrsList prs={current.yourPrsWaiting.prs} />
-                    ) : undefined
-                  }
+                  metric={currentMetrics?.[key]}
+                  showReviewers={showReviewers}
+                  expanded={expandedCard === key}
+                  onToggle={() => setExpandedCard(expandedCard === key ? null : key)}
+                  note={key === 'waitingOnYou' && currentMetrics ? waitingNote(currentMetrics.waitingOnYou.prs) : undefined}
+                  children={currentMetrics ? cardBody(key, currentMetrics, state.prView) : undefined}
                 />
               ))}
               <HistoryCard history={state.history} current={state.trackedWindow} />
@@ -263,8 +295,10 @@ export function App() {
 
       {state.view === 'metrics' && (
         <footer className="footer">
-          {current ? (
-            <span title={`Updated ${ago(current.fetchedAt)} · times in ${current.timezone}`}>Updated {clock(current.fetchedAt)}</span>
+          {currentMetrics ? (
+            <span title={`Updated ${minutesAgo(currentMetrics.fetchedAt)} · times in ${currentMetrics.timezone}`}>
+              Updated {clockTime(currentMetrics.fetchedAt)}
+            </span>
           ) : (
             <span>{loading ? 'Loading from GitHub…' : error ? 'No numbers yet' : ''}</span>
           )}

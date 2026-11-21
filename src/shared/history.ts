@@ -4,11 +4,11 @@
 // Counts only by default: no PR titles or links are ever stored, and teammates' logins only when the person
 // opts in ("Remember teammates in history"; see `partners`). Everything here is pure (no Electron, no
 // files), so scripts/check.ts can test it; src/main/history.ts reads and writes the file.
-import { isValidDate, type SprintWindow } from './args';
+import { isValidDate, type DateWindow } from './dateWindow';
 import { reviewRatio, superMinReviews, type ReviewRatio } from './ratio';
 import { RANGE_KINDS, RANGE_LABELS, windowDays, type RangeKind } from './range';
-import type { HistoryChoice, Partner, SprintSettings } from './types';
-import { isValidLogin } from './validate';
+import type { HistoryChoice, Partner, TrackedSettings } from './types';
+import { isObject, isValidLogin } from './validate';
 
 /** Bump when the file format changes, and convert older versions in parseHistory. */
 export const HISTORY_VERSION = 1;
@@ -37,9 +37,10 @@ export interface Period {
 export type PeriodInput = Omit<Period, 'updatedAt'>;
 
 /** Identifies a period within a series (and a recap: see AppState.recapSeen). */
-export const periodKey = (p: Pick<Period, 'from' | 'to'>) => `${p.from}|${p.to}`;
+export const periodKey = (period: Pick<Period, 'from' | 'to'>) => `${period.from}|${period.to}`;
 /** Shaped like a period key ("YYYY-MM-DD|YYYY-MM-DD"), for values read from disk or sent by the window. */
-export const isPeriodKey = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}\|\d{4}-\d{2}-\d{2}$/.test(v);
+export const isPeriodKey = (value: unknown): value is string =>
+  typeof value === 'string' && /^\d{4}-\d{2}-\d{2}\|\d{4}-\d{2}-\d{2}$/.test(value);
 
 /**
  * What a period records about the people reviews were traded with (`partners` is most traded first, as
@@ -47,8 +48,8 @@ export const isPeriodKey = (v: unknown): v is string => typeof v === 'string' &&
  */
 export function partnerExtras(partners: Partner[], remember: boolean): Pick<Period, 'reviewedFor' | 'reviewedBy' | 'partners'> {
   return {
-    reviewedFor: partners.filter((p) => p.gave > 0).length,
-    reviewedBy: partners.filter((p) => p.got > 0).length,
+    reviewedFor: partners.filter((partner) => partner.gave > 0).length,
+    reviewedBy: partners.filter((partner) => partner.got > 0).length,
     ...(remember && partners.length > 0 ? { partners: partners.slice(0, MAX_STORED_PARTNERS) } : {}),
   };
 }
@@ -83,56 +84,63 @@ export interface HistoryView {
 export const EMPTY_HISTORY: History = Object.freeze({ version: HISTORY_VERSION, series: [] }) as History;
 
 type SeriesKey = Pick<Series, 'owner' | 'login' | 'kind' | 'start'>;
-export const seriesId = (s: SeriesKey) => [s.owner.toLowerCase(), s.login.toLowerCase(), s.kind, s.start].join('|');
-const keyOf = (s: SprintSettings): SeriesKey => ({ owner: s.owner, login: s.login, kind: s.range.kind, start: s.range.start });
+/** Owner and login compare case-insensitively, as GitHub treats them. */
+const seriesId = (key: SeriesKey) => [key.owner.toLowerCase(), key.login.toLowerCase(), key.kind, key.start].join('|');
+const keyOf = (settings: TrackedSettings): SeriesKey => ({
+  owner: settings.owner,
+  login: settings.login,
+  kind: settings.range.kind,
+  start: settings.range.start,
+});
+const matchesSettings = (series: SeriesKey, settings: TrackedSettings) => seriesId(series) === seriesId(keyOf(settings));
 
-const isActive = (s: Series) => s.archivedAt === null;
-const activeOf = (h: History) => h.series.find(isActive) ?? null;
+const isActive = (series: Series) => series.archivedAt === null;
+const activeOf = (history: History) => history.series.find(isActive) ?? null;
+const byFrom = (a: Period, b: Period) => a.from.localeCompare(b.from);
 
 // ---------- reading a file that may have been hand-edited or corrupted ----------
 
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
-const isTime = (v: unknown): v is string => typeof v === 'string' && v.length <= 40 && !Number.isNaN(Date.parse(v));
-const isCount = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 1_000_000;
+const isTime = (value: unknown): value is string => typeof value === 'string' && value.length <= 40 && !Number.isNaN(Date.parse(value));
+const isCount = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 0 && (value as number) <= 1_000_000;
 
-function parsePartner(v: unknown): Partner | null {
-  if (!isObject(v)) return null;
-  const { login, gave, got } = v;
+function parsePartner(value: unknown): Partner | null {
+  if (!isObject(value)) return null;
+  const { login, gave, got } = value;
   return typeof login === 'string' && isValidLogin(login) && isCount(gave) && isCount(got) ? { login, gave, got } : null;
 }
 
 /** A period's optional extras: each one that's invalid is dropped on its own, keeping the period. */
-function parseExtras(v: Record<string, unknown>): Pick<Period, 'reviewedFor' | 'reviewedBy' | 'partners'> {
-  const { reviewedFor, reviewedBy, partners } = v;
-  const valid = Array.isArray(partners)
-    ? partners.map(parsePartner).filter((p): p is Partner => p !== null).slice(0, MAX_STORED_PARTNERS)
+function parseExtras(value: Record<string, unknown>): Pick<Period, 'reviewedFor' | 'reviewedBy' | 'partners'> {
+  const { reviewedFor, reviewedBy, partners } = value;
+  const validPartners = Array.isArray(partners)
+    ? partners.map(parsePartner).filter((partner): partner is Partner => partner !== null).slice(0, MAX_STORED_PARTNERS)
     : [];
   return {
     ...(isCount(reviewedFor) ? { reviewedFor } : {}),
     ...(isCount(reviewedBy) ? { reviewedBy } : {}),
-    ...(valid.length > 0 ? { partners: valid } : {}),
+    ...(validPartners.length > 0 ? { partners: validPartners } : {}),
   };
 }
 
-function parsePeriod(v: unknown): Period | null {
-  if (!isObject(v)) return null;
-  const { from, to, authored, reviewed, final, updatedAt } = v;
+function parsePeriod(value: unknown): Period | null {
+  if (!isObject(value)) return null;
+  const { from, to, authored, reviewed, final, updatedAt } = value;
   if (typeof from !== 'string' || typeof to !== 'string' || !isValidDate(from) || !isValidDate(to) || from > to) return null;
   if (!isCount(authored) || !isCount(reviewed) || typeof final !== 'boolean' || !isTime(updatedAt)) return null;
-  return { from, to, authored, reviewed, final, updatedAt, ...parseExtras(v) };
+  return { from, to, authored, reviewed, final, updatedAt, ...parseExtras(value) };
 }
 
-function parseSeries(v: unknown): Series | null {
-  if (!isObject(v)) return null;
-  const { owner, login, kind, start, startedAt, archivedAt, periods } = v;
+function parseSeries(value: unknown): Series | null {
+  if (!isObject(value)) return null;
+  const { owner, login, kind, start, startedAt, archivedAt, periods } = value;
   if (typeof owner !== 'string' || !isValidLogin(owner) || typeof login !== 'string' || !isValidLogin(login)) return null;
   if (typeof kind !== 'string' || !(RANGE_KINDS as readonly string[]).includes(kind)) return null;
   if (typeof start !== 'string' || !isValidDate(start) || !isTime(startedAt)) return null;
   if (archivedAt !== null && !isTime(archivedAt)) return null;
   if (!Array.isArray(periods)) return null;
-  const valid = periods.map(parsePeriod).filter((p): p is Period => p !== null);
-  // One entry per period, oldest first.
-  const unique = [...new Map(valid.map((p) => [periodKey(p), p])).values()].sort((a, b) => a.from.localeCompare(b.from));
+  const validPeriods = periods.map(parsePeriod).filter((period): period is Period => period !== null);
+  // One entry per period (the last one wins), oldest first.
+  const unique = [...new Map(validPeriods.map((period) => [periodKey(period), period])).values()].sort(byFrom);
   return { owner, login, kind: kind as RangeKind, start, startedAt, archivedAt, periods: unique };
 }
 
@@ -141,19 +149,19 @@ export function parseHistory(raw: unknown): { history: History; readOnly: boolea
   if (!isObject(raw)) return { history: EMPTY_HISTORY, readOnly: false };
   // Written by a newer version (after a downgrade): don't guess at its format, and never overwrite it.
   if (typeof raw.version === 'number' && raw.version > HISTORY_VERSION) return { history: EMPTY_HISTORY, readOnly: true };
-  const parsed = (Array.isArray(raw.series) ? raw.series : []).map(parseSeries).filter((s): s is Series => s !== null);
-  const seen = new Set<string>();
+  const parsed = (Array.isArray(raw.series) ? raw.series : []).map(parseSeries).filter((series): series is Series => series !== null);
+  const seenIds = new Set<string>();
   let haveActive = false;
-  const series = parsed.flatMap((s) => {
-    const id = seriesId(s);
-    if (seen.has(id)) return [];
-    seen.add(id);
+  const series = parsed.flatMap((candidate) => {
+    const id = seriesId(candidate);
+    if (seenIds.has(id)) return [];
+    seenIds.add(id);
     // Only one series can be active; any extra one is treated as archived.
-    if (isActive(s)) {
-      if (haveActive) return [{ ...s, archivedAt: s.startedAt }];
+    if (isActive(candidate)) {
+      if (haveActive) return [{ ...candidate, archivedAt: candidate.startedAt }];
       haveActive = true;
     }
-    return [s];
+    return [candidate];
   });
   return { history: { version: HISTORY_VERSION, series }, readOnly: false };
 }
@@ -161,43 +169,45 @@ export function parseHistory(raw: unknown): { history: History; readOnly: boolea
 // ---------- changes (each returns a new History; nothing is modified in place) ----------
 
 /** When saving `settings` would retire history that has periods, what the UI should ask about. */
-export function needsChoice(h: History, settings: SprintSettings): HistoryChoice | null {
-  const a = activeOf(h);
-  if (!a || seriesId(a) === seriesId(keyOf(settings)) || a.periods.length === 0) return null;
-  return { kind: a.kind, start: a.start, periods: a.periods.length };
+export function needsChoice(history: History, settings: TrackedSettings): HistoryChoice | null {
+  const active = activeOf(history);
+  if (!active || matchesSettings(active, settings) || active.periods.length === 0) return null;
+  return { kind: active.kind, start: active.start, periods: active.periods.length };
 }
 
 /**
  * Makes `settings` the active series: the current one is archived (or deleted), and an archived series
  * with exactly these settings is resumed. A new series is only created once it has a period to hold.
  */
-export function switchSeries(h: History, settings: SprintSettings, choice: 'archive' | 'delete', now: string): History {
-  const id = seriesId(keyOf(settings));
-  const a = activeOf(h);
-  let series = h.series;
-  if (a && seriesId(a) !== id) {
+export function switchSeries(history: History, settings: TrackedSettings, choice: 'archive' | 'delete', now: string): History {
+  const active = activeOf(history);
+  let series = history.series;
+  if (active && !matchesSettings(active, settings)) {
+    // An empty series has nothing worth archiving, so it's dropped either way.
     series =
-      choice === 'delete' || a.periods.length === 0
-        ? series.filter((s) => s !== a)
-        : series.map((s) => (s === a ? { ...s, archivedAt: now } : s));
+      choice === 'delete' || active.periods.length === 0
+        ? series.filter((candidate) => candidate !== active)
+        : series.map((candidate) => (candidate === active ? { ...candidate, archivedAt: now } : candidate));
   }
   if (!series.some(isActive)) {
-    const match = series.find((s) => seriesId(s) === id);
-    if (match) series = series.map((s) => (s === match ? { ...s, archivedAt: null } : s));
+    const match = series.find((candidate) => matchesSettings(candidate, settings));
+    if (match) series = series.map((candidate) => (candidate === match ? { ...candidate, archivedAt: null } : candidate));
   }
-  return series === h.series ? h : { ...h, series };
+  return series === history.series ? history : { ...history, series };
 }
 
 /** Adds or updates one period of the active series. A final period is never replaced by a non-final one. */
-export function recordPeriod(h: History, settings: SprintSettings, p: PeriodInput, now: string): History {
-  const switched = switchSeries(h, settings, 'archive', now);
+export function recordPeriod(history: History, settings: TrackedSettings, input: PeriodInput, now: string): History {
+  const switched = switchSeries(history, settings, 'archive', now);
   const existing = activeOf(switched);
-  const a: Series = existing ?? { ...keyOf(settings), startedAt: now, archivedAt: null, periods: [] };
-  const same = (x: Period) => x.from === p.from && x.to === p.to;
-  if (a.periods.find(same)?.final && !p.final) return switched;
-  const periods = [...a.periods.filter((x) => !same(x)), { ...p, updatedAt: now }].sort((x, y) => x.from.localeCompare(y.from));
-  const updated = { ...a, periods };
-  const series = existing ? switched.series.map((s) => (s === existing ? updated : s)) : [...switched.series, updated];
+  const active: Series = existing ?? { ...keyOf(settings), startedAt: now, archivedAt: null, periods: [] };
+  const isSamePeriod = (period: Period) => period.from === input.from && period.to === input.to;
+  if (active.periods.find(isSamePeriod)?.final && !input.final) return switched;
+  const periods = [...active.periods.filter((period) => !isSamePeriod(period)), { ...input, updatedAt: now }].sort(byFrom);
+  const updated = { ...active, periods };
+  const series = existing
+    ? switched.series.map((candidate) => (candidate === existing ? updated : candidate))
+    : [...switched.series, updated];
   return capPeriods({ ...switched, series });
 }
 
@@ -205,28 +215,31 @@ export function recordPeriod(h: History, settings: SprintSettings, p: PeriodInpu
  * Every stored teammate login removed, from every series (active and archived). Used when the person
  * switches "Remember teammates in history" off. The anonymous counts stay.
  */
-export function forgetPartners(h: History): History {
-  if (!h.series.some((s) => s.periods.some((p) => p.partners))) return h;
-  const strip = ({ partners: _dropped, ...rest }: Period): Period => rest;
-  return { ...h, series: h.series.map((s) => ({ ...s, periods: s.periods.map(strip) })) };
+export function forgetPartners(history: History): History {
+  if (!history.series.some((series) => series.periods.some((period) => period.partners))) return history;
+  const withoutPartners = ({ partners: _dropped, ...rest }: Period): Period => rest;
+  return { ...history, series: history.series.map((series) => ({ ...series, periods: series.periods.map(withoutPartners) })) };
 }
 
 /** Keeps the total under MAX_PERIODS: oldest archived periods first, then the oldest active ones. */
-export function capPeriods(h: History): History {
-  let excess = h.series.reduce((n, s) => n + s.periods.length, 0) - MAX_PERIODS;
-  if (excess <= 0) return h;
-  const archived = h.series.filter((s) => !isActive(s)).sort((a, b) => a.archivedAt!.localeCompare(b.archivedAt!));
+function capPeriods(history: History): History {
+  let excess = history.series.reduce((total, series) => total + series.periods.length, 0) - MAX_PERIODS;
+  if (excess <= 0) return history;
+  const archivedOldestFirst = history.series
+    .filter((series) => !isActive(series))
+    .sort((a, b) => a.archivedAt!.localeCompare(b.archivedAt!));
   const trimmed = new Map<Series, Period[]>();
-  for (const s of [...archived, ...h.series.filter(isActive)]) {
+  for (const series of [...archivedOldestFirst, ...history.series.filter(isActive)]) {
     if (excess <= 0) break;
-    const drop = Math.min(excess, s.periods.length);
-    trimmed.set(s, s.periods.slice(drop));
-    excess -= drop;
+    const dropCount = Math.min(excess, series.periods.length);
+    trimmed.set(series, series.periods.slice(dropCount));
+    excess -= dropCount;
   }
-  const series = h.series
-    .map((s) => (trimmed.has(s) ? { ...s, periods: trimmed.get(s)! } : s))
-    .filter((s) => isActive(s) || s.periods.length > 0);
-  return { ...h, series };
+  const series = history.series
+    .map((candidate) => (trimmed.has(candidate) ? { ...candidate, periods: trimmed.get(candidate)! } : candidate))
+    // An archived series left with no periods is removed; the active one always stays.
+    .filter((candidate) => isActive(candidate) || candidate.periods.length > 0);
+  return { ...history, series };
 }
 
 // ---------- reading ----------
@@ -235,43 +248,49 @@ export function capPeriods(h: History): History {
  * The most recent period of the active series that has ended (before `current`) but wasn't finalized:
  * it gets fetched one last time to lock in its numbers.
  */
-export function pendingFinalize(h: History, settings: SprintSettings, current: SprintWindow): Period | null {
-  const a = activeOf(h);
-  if (!a || seriesId(a) !== seriesId(keyOf(settings))) return null;
-  return a.periods.filter((p) => !p.final && p.to < current.from).at(-1) ?? null;
+export function pendingFinalize(history: History, settings: TrackedSettings, current: DateWindow): Period | null {
+  const active = activeOf(history);
+  if (!active || !matchesSettings(active, settings)) return null;
+  return active.periods.filter((period) => !period.final && period.to < current.from).at(-1) ?? null;
 }
 
-export function historyView(h: History, readOnly: boolean, settings: SprintSettings | null): HistoryView {
-  const a = activeOf(h);
+/**
+ * What the UI is sent: the active series only if it belongs to the current settings (none yet means
+ * none shown), and every archived series, most recently archived first.
+ */
+export function historyView(history: History, readOnly: boolean, settings: TrackedSettings | null): HistoryView {
+  const active = activeOf(history);
   return {
-    active: a && settings && seriesId(a) === seriesId(keyOf(settings)) ? a : null,
-    archived: h.series.filter((s) => !isActive(s)).sort((x, y) => y.archivedAt!.localeCompare(x.archivedAt!)),
+    active: active && settings && matchesSettings(active, settings) ? active : null,
+    archived: history.series.filter((series) => !isActive(series)).sort((a, b) => b.archivedAt!.localeCompare(a.archivedAt!)),
     readOnly,
   };
 }
 
 /** A period's ratio, judged with the super minimum for its own length. */
-export const periodRatio = (p: Period): ReviewRatio => reviewRatio(p.reviewed, p.authored, superMinReviews(windowDays(p)));
+export const periodRatio = (period: Period): ReviewRatio =>
+  reviewRatio(period.reviewed, period.authored, superMinReviews(windowDays(period)));
 
 /**
  * Every series and period as CSV (active series first). Every field is quoted. Teammate logins are
  * never exported, even when they're remembered: only the anonymous counts are.
  */
-export function historyCsv(h: History): string {
-  const quote = (v: string | number | boolean) => `"${String(v).replaceAll('"', '""')}"`;
+export function historyCsv(history: History): string {
+  const quote = (field: string | number | boolean) => `"${String(field).replaceAll('"', '""')}"`;
   const rows: Array<Array<string | number | boolean>> = [
     // New columns go at the end, so anything reading the older layout by position keeps working.
     ['owner', 'login', 'range', 'range_start', 'status', 'from', 'to', 'authored', 'reviewed', 'ratio', 'final', 'reviewed_for', 'reviewed_by'],
   ];
-  const ordered = [...h.series.filter(isActive), ...h.series.filter((s) => !isActive(s))];
-  for (const s of ordered) {
-    for (const p of s.periods) {
-      const r = periodRatio(p);
+  const activeFirst = [...history.series.filter(isActive), ...history.series.filter((series) => !isActive(series))];
+  for (const series of activeFirst) {
+    for (const period of series.periods) {
+      const ratio = periodRatio(period);
       rows.push([
-        s.owner, s.login, RANGE_LABELS[s.kind], s.start, isActive(s) ? 'active' : 'archived', p.from, p.to, p.authored, p.reviewed,
-        r.value === null ? '' : r.display, p.final, p.reviewedFor ?? '', p.reviewedBy ?? '',
+        series.owner, series.login, RANGE_LABELS[series.kind], series.start, isActive(series) ? 'active' : 'archived',
+        period.from, period.to, period.authored, period.reviewed, ratio.value === null ? '' : ratio.display, period.final,
+        period.reviewedFor ?? '', period.reviewedBy ?? '',
       ]);
     }
   }
-  return rows.map((r) => r.map(quote).join(',')).join('\r\n') + '\r\n';
+  return rows.map((row) => row.map(quote).join(',')).join('\r\n') + '\r\n';
 }

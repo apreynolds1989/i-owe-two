@@ -6,26 +6,30 @@ import type { PrSummary } from '../shared/types';
 import { CheckIcon, CopyIcon } from './icons';
 import { PrRow } from './MetricCard';
 
-export function YourPrsList({ prs }: { prs: PrSummary[] }) {
-  const [copied, setCopied] = useState<'idle' | 'copied' | 'failed'>('idle');
-  useEffect(() => {
-    if (copied === 'idle') return;
-    const id = setTimeout(() => setCopied('idle'), 2000);
-    return () => clearTimeout(id);
-  }, [copied]);
+/** How long "Copied" (or "Nothing to copy") shows before the button goes back to "Copy". */
+const COPY_FEEDBACK_MS = 2000;
 
-  const copy = () => void window.sprint.copyYourPrs().then((r) => setCopied(r.ok ? 'copied' : 'failed'));
+/** Your open PRs still short of reviewers, with a button to copy them all as links. */
+export function YourPrsList({ prs }: { prs: PrSummary[] }) {
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
+  useEffect(() => {
+    if (copyStatus === 'idle') return;
+    const timer = setTimeout(() => setCopyStatus('idle'), COPY_FEEDBACK_MS);
+    return () => clearTimeout(timer);
+  }, [copyStatus]);
+
+  const copy = () => void window.sprint.copyYourPrs().then((result) => setCopyStatus(result.ok ? 'copied' : 'failed'));
 
   return (
     <div className="pr-view">
       <div className="pr-toolbar">
         <button
-          className={`toggle-chip${copied === 'copied' ? ' active' : ''}`}
+          className={`toggle-chip${copyStatus === 'copied' ? ' active' : ''}`}
           onClick={copy}
           title="Copy every PR here (title and link, one per line) to paste into a chat"
         >
-          {copied === 'copied' ? <CheckIcon /> : <CopyIcon />}
-          {copied === 'copied' ? 'Copied' : copied === 'failed' ? 'Nothing to copy' : `Copy ${prs.length === 1 ? 'link' : `${prs.length} links`}`}
+          {copyStatus === 'copied' ? <CheckIcon /> : <CopyIcon />}
+          {copyStatus === 'copied' ? 'Copied' : copyStatus === 'failed' ? 'Nothing to copy' : `Copy ${prs.length === 1 ? 'link' : `${prs.length} links`}`}
         </button>
       </div>
       <ul className="pr-list">

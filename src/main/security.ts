@@ -11,7 +11,7 @@ import { allowedGitHubLink } from '../shared/validate';
 
 const SCHEME = 'app';
 const HOST = 'sprint';
-export const APP_ORIGIN = `${SCHEME}://${HOST}`;
+const APP_ORIGIN = `${SCHEME}://${HOST}`;
 export const INDEX_URL = `${APP_ORIGIN}/index.html`;
 
 /**
@@ -107,7 +107,7 @@ export function hardenSession(): void {
   ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
   ses.setPermissionCheckHandler(() => false);
   // Defence in depth behind the CSP: the UI may only load its own files.
-  // (GitHub API calls are made by the main process with Node's fetch, which doesn't go through here.)
+  // (GitHub API calls use their own session, 'github-api' in transport.ts, so they don't go through here.)
   ses.webRequest.onBeforeRequest((details, callback) => {
     const allowed =
       details.url.startsWith(`${APP_ORIGIN}/`) || (!app.isPackaged && details.url.startsWith('devtools://'));
@@ -129,6 +129,7 @@ export function hardenWebContents(contents: WebContents): void {
   });
 }
 
+/** Opens a link in the default browser, but only an allowed GitHub page (see allowedGitHubLink). */
 export function openExternalSafely(url: string): void {
   // Open the parsed, normalized form, never the raw string.
   const safe = allowedGitHubLink(url);

@@ -4,35 +4,25 @@ import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { build, type InlineConfig } from 'vite';
+import { build } from 'vite';
+import { nodeBuild } from './viteNode';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const outDir = join(root, '.preview');
 
-const run = (cmd: string, args: string[]) => {
-  const r = spawnSync(cmd, args, { stdio: 'inherit', cwd: root, shell: false });
-  if (r.status !== 0) process.exit(r.status ?? 1);
+/** Runs a command in the repo and stops this script if it fails. */
+const run = (command: string, args: string[]) => {
+  const result = spawnSync(command, args, { stdio: 'inherit', cwd: root, shell: false });
+  if (result.status !== 0) process.exit(result.status ?? 1);
 };
 
 // The app's own build first (renderer is what gets screenshotted).
 run(process.execPath, [join(root, 'node_modules', 'tsx', 'dist', 'cli.mjs'), join(root, 'scripts', 'dev.ts'), '--build-only']);
 
-const nodeBuild = (entry: string, fileName: string, format: 'es' | 'cjs'): InlineConfig => ({
-  configFile: false,
-  root,
-  logLevel: 'warn',
-  build: {
-    ssr: entry,
-    outDir,
-    emptyOutDir: false,
-    target: 'node22',
-    rollupOptions: { external: ['electron'], output: { format, entryFileNames: fileName } },
-  },
-});
-await build(nodeBuild(join(root, 'scripts', 'preview', 'main.ts'), 'main.js', 'es'));
-await build(nodeBuild(join(root, 'scripts', 'preview', 'preload.ts'), 'preload.cjs', 'cjs'));
+await build(nodeBuild(root, join(root, 'scripts', 'preview', 'main.ts'), outDir, 'main.js', 'es'));
+await build(nodeBuild(root, join(root, 'scripts', 'preview', 'preload.ts'), outDir, 'preload.cjs', 'cjs'));
 
 const electronBinary = createRequire(import.meta.url)('electron') as unknown as string;
 const { ELECTRON_RUN_AS_NODE: _ignored, ...env } = process.env;
-const r = spawnSync(electronBinary, [join(outDir, 'main.js')], { stdio: 'inherit', env });
-process.exit(r.status ?? 0);
+const preview = spawnSync(electronBinary, [join(outDir, 'main.js')], { stdio: 'inherit', env });
+process.exit(preview.status ?? 0);

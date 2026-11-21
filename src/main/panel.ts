@@ -5,16 +5,17 @@ import { app, BrowserWindow, nativeImage, screen, Tray, type NativeImage } from 
 import { join } from 'node:path';
 import type { RatioStatus } from '../shared/ratio';
 import { DOT_COLORS, paintDot } from './dot';
-import { overlaps, panelPosition } from './placement';
-import type { Bounds } from './prefs';
+import { overlaps, panelPosition, type Rect } from './placement';
 import { hardenWebContents, INDEX_URL } from './security';
 
-export const PANEL_SIZE = { width: 380, height: 600 };
+const PANEL_SIZE = { width: 380, height: 600 };
 
+/** The app icon (assets/icon.png), used for the tray and the window. */
 export function loadIcon(appDir: string): NativeImage {
   return nativeImage.createFromPath(join(appDir, 'assets', 'icon.png'));
 }
 
+/** The tray icon, plain until there are numbers to show. */
 export function createTray(icon: NativeImage): Tray {
   return new Tray(trayImage(icon, 'none'));
 }
@@ -35,8 +36,9 @@ export function trayImage(icon: NativeImage, status: RatioStatus): NativeImage {
   return image;
 }
 
+/** The hidden, frameless, sandboxed panel window, loading the UI from app://. Shown by main.ts. */
 export function createPanel(preload: string, icon: NativeImage): BrowserWindow {
-  const win = new BrowserWindow({
+  const panel = new BrowserWindow({
     ...PANEL_SIZE,
     show: false,
     frame: false,
@@ -59,25 +61,25 @@ export function createPanel(preload: string, icon: NativeImage): BrowserWindow {
       devTools: !app.isPackaged,
     },
   });
-  hardenWebContents(win.webContents);
-  void win.loadURL(INDEX_URL);
-  return win;
+  hardenWebContents(panel.webContents);
+  void panel.loadURL(INDEX_URL);
+  return panel;
 }
 
 /** Position next to the tray icon. If Windows reports no bounds (icon in the ^ overflow), use the click point. */
-export function placeNearTray(win: BrowserWindow, tray: Tray): void {
+export function placeNearTray(panel: BrowserWindow, tray: Tray): void {
   let anchor = tray.getBounds();
   if (anchor.width === 0 || anchor.height === 0) {
-    const p = screen.getCursorScreenPoint();
-    anchor = { x: p.x, y: p.y, width: 1, height: 1 };
+    const cursor = screen.getCursorScreenPoint();
+    anchor = { x: cursor.x, y: cursor.y, width: 1, height: 1 };
   }
   const display = screen.getDisplayNearestPoint({ x: anchor.x + anchor.width / 2, y: anchor.y + anchor.height / 2 });
   const { x, y } = panelPosition(anchor, display, PANEL_SIZE, process.platform);
-  win.setBounds({ x, y, ...PANEL_SIZE });
+  panel.setBounds({ x, y, ...PANEL_SIZE });
 }
 
 /** Saved pinned position, if it's still on a connected display (a monitor may have been unplugged). */
-export function visibleBounds(saved: Bounds | null): Bounds | null {
+export function visibleBounds(saved: Rect | null): Rect | null {
   if (!saved) return null;
   const bounds = { ...saved, ...PANEL_SIZE };
   return overlaps(bounds, screen.getDisplayMatching(bounds).workArea) ? bounds : null;

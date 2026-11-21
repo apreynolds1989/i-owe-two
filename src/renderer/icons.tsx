@@ -1,6 +1,7 @@
 // Small inline SVG icons (24×24 grid, stroked), drawn here so the app needs no icon library.
 import type { ReactNode } from 'react';
 
+/** The shared <svg> wrapper: 24×24 viewBox, stroked in the current text colour, hidden from screen readers. */
 function Icon({ children, size = 18 }: { children: ReactNode; size?: number }) {
   return (
     <svg

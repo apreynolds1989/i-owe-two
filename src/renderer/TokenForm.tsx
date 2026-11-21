@@ -1,3 +1,4 @@
+// The token screen: paste a fine-grained token, with step-by-step instructions for making one.
 import { useState, type FormEvent } from 'react';
 import type { AppState } from '../shared/types';
 import { checkToken } from '../shared/validate';
@@ -5,14 +6,15 @@ import { ExternalIcon, KeyIcon } from './icons';
 
 const TOKENS_PAGE = 'https://github.com/settings/personal-access-tokens';
 
+/** Takes a token, checks its shape here, then hands it to the main process, which proves it works before keeping it. */
 export function TokenForm({ state }: { state: AppState }) {
-  const [value, setValue] = useState('');
+  const [tokenInput, setTokenInput] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const checked = checkToken(value);
+    const checked = checkToken(tokenInput);
     if ('error' in checked) return setError(checked.error);
     setBusy(true);
     setError(null);
@@ -23,7 +25,7 @@ export function TokenForm({ state }: { state: AppState }) {
       setError('Something went wrong saving the token. Please try again.');
     } finally {
       // Clear the field either way: the token lives (encrypted) in the main process only.
-      setValue('');
+      setTokenInput('');
       setBusy(false);
     }
   }
@@ -45,8 +47,8 @@ export function TokenForm({ state }: { state: AppState }) {
           <span>Fine-grained token</span>
           <input
             type="password"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
+            value={tokenInput}
+            onChange={(event) => setTokenInput(event.target.value)}
             placeholder="github_pat_…"
             autoComplete="off"
             spellCheck={false}
@@ -64,7 +66,7 @@ export function TokenForm({ state }: { state: AppState }) {
               Cancel
             </button>
           )}
-          <button type="submit" className="button primary" disabled={busy || !value.trim()}>
+          <button type="submit" className="button primary" disabled={busy || !tokenInput.trim()}>
             {busy ? 'Checking…' : 'Save token'}
           </button>
         </div>

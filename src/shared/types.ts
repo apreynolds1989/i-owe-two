@@ -1,14 +1,17 @@
 // Shapes passed between the main process and the UI over IPC. Plain data only (it is structured-cloned).
 // The GitHub token never appears in any of these types: it goes in once (saveToken) and never comes back.
-import type { SprintWindow } from './args';
+import type { DateWindow } from './dateWindow';
 import type { HistoryView } from './history';
 import type { RangeKind, RangeSetting, ViewRange } from './range';
 
 export type Theme = 'system' | 'light' | 'dark';
-export type View = 'token' | 'start' | 'metrics';
+/** Which screen the panel shows. */
+export type Screen = 'token' | 'start' | 'metrics';
+/** Whether the searched owner is a user or an organization (decides between user: and org: searches). */
+export type OwnerType = 'User' | 'Organization';
 
 /** What a person enters on the Start screen. */
-export interface SprintSettings {
+export interface TrackedSettings {
   /** Whose repos to search: a GitHub username or organization name. */
   owner: string;
   /** Whose activity to count. */
@@ -19,6 +22,7 @@ export interface SprintSettings {
   ignoreLabels: string[];
 }
 
+/** One PR as shown in a list. Built by the main process from GitHub's search results. */
 export interface PrSummary {
   repo: string;
   number: number;
@@ -58,6 +62,7 @@ export interface Partner {
   got: number;
 }
 
+/** One card's number and the PRs behind it. */
 export interface Metric {
   count: number;
   prs: PrSummary[];
@@ -67,11 +72,12 @@ export interface Metric {
   searchTotal: number;
 }
 
-export interface SprintMetrics {
-  settings: SprintSettings;
+/** Everything one refresh fetched, for the settings and dates it was fetched for. */
+export interface ReviewMetrics {
+  settings: TrackedSettings;
   /** The dates these numbers cover (the tracked period, or the range being viewed). */
-  window: SprintWindow;
-  ownerType: 'User' | 'Organization';
+  window: DateWindow;
+  ownerType: OwnerType;
   timezone: string;
   /** ISO time the numbers were fetched. */
   fetchedAt: string;
@@ -89,7 +95,7 @@ export interface SprintMetrics {
   partners: Partner[];
 }
 
-export type RefreshResult = { ok: true; metrics: SprintMetrics } | { ok: false; error: string };
+export type RefreshResult = { ok: true; metrics: ReviewMetrics } | { ok: false; error: string };
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
 /** History that would be archived or deleted by saving new settings: the UI asks which. */
@@ -102,20 +108,20 @@ export type StartResult = ActionResult | { ok: false; historyChoice: HistoryChoi
 
 /** Everything the UI needs to draw itself, pushed by the main process whenever it changes. */
 export interface AppState {
-  view: View;
+  view: Screen;
   hasToken: boolean;
   /** False when the OS can't encrypt the token, so it's only kept until the app quits. */
   tokenPersisted: boolean;
   /** Login of the token's owner, once known. */
   viewerLogin: string | null;
   /** Last settings used (also the Start form's defaults). */
-  settings: SprintSettings | null;
+  settings: TrackedSettings | null;
   /** The current period of the tracked range. */
-  trackedWindow: SprintWindow | null;
+  trackedWindow: DateWindow | null;
   /** What's being looked at: the tracked range, or a temporary range that's never saved. */
   viewing: ViewRange;
   /** The dates on screen (trackedWindow unless viewing something else). */
-  window: SprintWindow | null;
+  window: DateWindow | null;
   history: HistoryView;
   theme: Theme;
   pinned: boolean;
@@ -131,6 +137,7 @@ export interface AppState {
   recapSeen: string | null;
 }
 
+/** What the Start form sends; the main process validates every field again. */
 export interface StartInput {
   owner: string;
   login: string;
@@ -142,7 +149,7 @@ export interface StartInput {
 }
 
 /** What the preload bridge exposes to the UI as `window.sprint`. */
-export interface SprintBridge {
+export interface AppBridge {
   getState(): Promise<AppState>;
   saveToken(token: string): Promise<ActionResult>;
   clearToken(): Promise<void>;
@@ -153,7 +160,7 @@ export interface SprintBridge {
   exportHistory(): Promise<ActionResult>;
   /** Asks for confirmation, then deletes all history. */
   clearHistory(): Promise<void>;
-  showView(view: View): void;
+  showView(screen: Screen): void;
   refresh(): void;
   setTheme(theme: Theme): void;
   setPinned(pinned: boolean): void;
@@ -169,11 +176,12 @@ export interface SprintBridge {
   hide(): void;
   quit(): void;
   /** Each subscribe returns an unsubscribe function. */
-  onState(cb: (state: AppState) => void): () => void;
-  onResult(cb: (result: RefreshResult) => void): () => void;
-  onLoading(cb: (loading: boolean) => void): () => void;
+  onState(callback: (state: AppState) => void): () => void;
+  onResult(callback: (result: RefreshResult) => void): () => void;
+  onLoading(callback: (loading: boolean) => void): () => void;
 }
 
+/** IPC channel names. These are wire names shared by main and preload: change them in both or not at all. */
 export const IPC = {
   getState: 'state:get',
   state: 'state:changed',

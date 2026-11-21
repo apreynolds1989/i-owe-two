@@ -12,27 +12,13 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
-import { build, type InlineConfig } from 'vite';
+import { build } from 'vite';
+import { nodeBuild } from './viteNode';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const src = join(root, 'src');
 const dist = join(root, 'dist');
 const release = join(root, 'release');
-
-/** Bundle one Node-side entry into dist/ as a single file, with `electron` provided by the runtime. */
-const nodeBuild = (entry: string, fileName: string, format: 'es' | 'cjs'): InlineConfig => ({
-  configFile: false,
-  root,
-  logLevel: 'warn',
-  build: {
-    ssr: entry,
-    outDir: dist,
-    emptyOutDir: false,
-    target: 'node22',
-    minify: false,
-    rollupOptions: { external: ['electron'], output: { format, entryFileNames: fileName } },
-  },
-});
 
 console.log('[i-owe-two] Building...');
 rmSync(dist, { recursive: true, force: true });
@@ -51,8 +37,8 @@ await build({
     sourcemap: false,
   },
 });
-await build(nodeBuild(join(src, 'main', 'main.ts'), 'main.js', 'es'));
-await build(nodeBuild(join(src, 'preload', 'preload.ts'), 'preload.cjs', 'cjs'));
+await build(nodeBuild(root, join(src, 'main', 'main.ts'), dist, 'main.js', 'es'));
+await build(nodeBuild(root, join(src, 'preload', 'preload.ts'), dist, 'preload.cjs', 'cjs'));
 console.log('[i-owe-two] Built to dist/.');
 
 if (!process.argv.includes('--build-only')) {

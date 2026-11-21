@@ -1,18 +1,18 @@
 // Preload: the only bridge between the sandboxed UI and the main process.
-// It exposes exactly the named functions in SprintBridge on `window.sprint`; the UI never gets
+// It exposes exactly the named functions in AppBridge on `window.sprint`; the UI never gets
 // ipcRenderer itself, Node, the filesystem or the token. Built as CommonJS (dist/preload.cjs),
 // which Electron requires for sandboxed preloads.
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
-import { IPC, type AppState, type RefreshResult, type SprintBridge } from '../shared/types';
+import { IPC, type AppBridge, type AppState, type RefreshResult } from '../shared/types';
 
 /** Subscribe to a channel and hand back an unsubscribe function, without leaking the event object. */
-function listen<T>(channel: string, cb: (value: T) => void): () => void {
-  const handler = (_event: IpcRendererEvent, value: T) => cb(value);
+function listen<T>(channel: string, callback: (value: T) => void): () => void {
+  const handler = (_event: IpcRendererEvent, value: T) => callback(value);
   ipcRenderer.on(channel, handler);
   return () => ipcRenderer.removeListener(channel, handler);
 }
 
-const bridge: SprintBridge = {
+const bridge: AppBridge = {
   getState: () => ipcRenderer.invoke(IPC.getState),
   saveToken: (token) => ipcRenderer.invoke(IPC.saveToken, token),
   clearToken: () => ipcRenderer.invoke(IPC.clearToken),
@@ -20,7 +20,7 @@ const bridge: SprintBridge = {
   setViewing: (view) => ipcRenderer.invoke(IPC.setViewing, view),
   exportHistory: () => ipcRenderer.invoke(IPC.exportHistory),
   clearHistory: () => ipcRenderer.invoke(IPC.clearHistory),
-  showView: (view) => ipcRenderer.send(IPC.showView, view),
+  showView: (screen) => ipcRenderer.send(IPC.showView, screen),
   refresh: () => ipcRenderer.send(IPC.refresh),
   setTheme: (theme) => ipcRenderer.send(IPC.setTheme, theme),
   setPinned: (pinned) => ipcRenderer.send(IPC.setPinned, pinned),
@@ -32,9 +32,9 @@ const bridge: SprintBridge = {
   openExternal: (url) => ipcRenderer.send(IPC.openExternal, url),
   hide: () => ipcRenderer.send(IPC.hide),
   quit: () => ipcRenderer.send(IPC.quit),
-  onState: (cb) => listen<AppState>(IPC.state, cb),
-  onResult: (cb) => listen<RefreshResult>(IPC.result, cb),
-  onLoading: (cb) => listen<boolean>(IPC.loading, cb),
+  onState: (callback) => listen<AppState>(IPC.state, callback),
+  onResult: (callback) => listen<RefreshResult>(IPC.result, callback),
+  onLoading: (callback) => listen<boolean>(IPC.loading, callback),
 };
 
 contextBridge.exposeInMainWorld('sprint', bridge);

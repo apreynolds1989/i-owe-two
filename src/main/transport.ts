@@ -9,6 +9,7 @@ import { ENDPOINT, setTransport } from './github';
 
 const API_ORIGIN = new URL(ENDPOINT).origin;
 
+/** Call after app ready: routes every GitHub request (github.ts) through the locked-down session. */
 export function installTransport(): void {
   const api = session.fromPartition('github-api', { cache: false }); // no "persist:" prefix: memory only
   api.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));

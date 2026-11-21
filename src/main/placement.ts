@@ -1,5 +1,6 @@
 // Where the panel goes, kept free of Electron imports so scripts/check.ts can test every taskbar edge.
 
+/** A rectangle in screen coordinates (also the panel's saved bounds). */
 export interface Rect {
   x: number;
   y: number;
@@ -19,36 +20,36 @@ export function panelPosition(
   size: { width: number; height: number },
   platform: string,
 ): { x: number; y: number } {
-  const { bounds: b, workArea: w } = display;
-  const cx = tray.x + tray.width / 2;
-  const cy = tray.y + tray.height / 2;
+  const { bounds: screenBounds, workArea } = display;
+  const trayCenterX = tray.x + tray.width / 2;
+  const trayCenterY = tray.y + tray.height / 2;
   let x: number;
   let y: number;
 
-  if (platform === 'darwin' || w.y > b.y) {
+  if (platform === 'darwin' || workArea.y > screenBounds.y) {
     // Menu bar (Mac) or a taskbar along the top: drop down below it, centred on the icon.
-    x = cx - size.width / 2;
-    y = w.y + GAP;
-  } else if (w.x > b.x) {
+    x = trayCenterX - size.width / 2;
+    y = workArea.y + GAP;
+  } else if (workArea.x > screenBounds.x) {
     // Taskbar on the left.
-    x = w.x + GAP;
-    y = cy - size.height / 2;
-  } else if (w.x + w.width < b.x + b.width) {
+    x = workArea.x + GAP;
+    y = trayCenterY - size.height / 2;
+  } else if (workArea.x + workArea.width < screenBounds.x + screenBounds.width) {
     // Taskbar on the right.
-    x = w.x + w.width - size.width - GAP;
-    y = cy - size.height / 2;
+    x = workArea.x + workArea.width - size.width - GAP;
+    y = trayCenterY - size.height / 2;
   } else {
     // Taskbar at the bottom (Windows' default), or auto-hidden.
-    x = cx - size.width / 2;
-    y = w.y + w.height - size.height - GAP;
+    x = trayCenterX - size.width / 2;
+    y = workArea.y + workArea.height - size.height - GAP;
   }
 
   // Keep the whole panel inside the work area.
-  x = Math.min(Math.max(x, w.x + GAP), w.x + w.width - size.width - GAP);
-  y = Math.min(Math.max(y, w.y + GAP), w.y + w.height - size.height - GAP);
+  x = Math.min(Math.max(x, workArea.x + GAP), workArea.x + workArea.width - size.width - GAP);
+  y = Math.min(Math.max(y, workArea.y + GAP), workArea.y + workArea.height - size.height - GAP);
   return { x: Math.round(x), y: Math.round(y) };
 }
 
 /** True if any part of `r` is on the work area (used to drop a saved position from an unplugged monitor). */
-export const overlaps = (r: Rect, area: Rect) =>
-  r.x < area.x + area.width && r.x + r.width > area.x && r.y < area.y + area.height && r.y + r.height > area.y;
+export const overlaps = (rect: Rect, area: Rect) =>
+  rect.x < area.x + area.width && rect.x + rect.width > area.x && rect.y < area.y + area.height && rect.y + rect.height > area.y;

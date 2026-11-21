@@ -4,25 +4,21 @@
 import { useRef, useState } from 'react';
 import { applyPrView, labelOptions } from '../shared/prView';
 import type { PrListView, PrSummary } from '../shared/types';
-import { useClickOutside } from './hooks';
+import { useClickOutside, useToggleSet } from './hooks';
 import { ChevronIcon, FilterIcon, GroupIcon, SortIcon } from './icons';
 import { PrRow } from './MetricCard';
 
+/** The "Need reviewers" PRs, filtered, sorted and optionally grouped by `view`, with the controls to change it. */
 export function NeedsReviewersList({ prs, view }: { prs: PrSummary[]; view: PrListView }) {
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const [collapsedRepos, toggleRepo] = useToggleSet();
   const [labelsOpen, setLabelsOpen] = useState(false);
   const labelsRef = useRef<HTMLDivElement>(null);
   useClickOutside(labelsRef, labelsOpen, () => setLabelsOpen(false));
 
-  const set = (change: Partial<PrListView>) => window.sprint.setPrView({ ...view, ...change });
+  // The main process stores the view and pushes it back in AppState, which re-renders this list.
+  const updateView = (change: Partial<PrListView>) => window.sprint.setPrView({ ...view, ...change });
   const toggleLabel = (label: string) =>
-    set({ labels: view.labels.includes(label) ? view.labels.filter((l) => l !== label) : [...view.labels, label] });
-  const toggleGroup = (repo: string) =>
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (!next.delete(repo)) next.add(repo);
-      return next;
-    });
+    updateView({ labels: view.labels.includes(label) ? view.labels.filter((selected) => selected !== label) : [...view.labels, label] });
 
   const { groups, shown } = applyPrView(prs, view);
   const options = labelOptions(prs, view.labels);
@@ -33,7 +29,7 @@ export function NeedsReviewersList({ prs, view }: { prs: PrSummary[]; view: PrLi
       <div className="pr-toolbar">
         <button
           className={`toggle-chip${view.groupByRepo ? ' active' : ''}`}
-          onClick={() => set({ groupByRepo: !view.groupByRepo })}
+          onClick={() => updateView({ groupByRepo: !view.groupByRepo })}
           aria-pressed={view.groupByRepo}
           title="Group by repository"
         >
@@ -42,7 +38,7 @@ export function NeedsReviewersList({ prs, view }: { prs: PrSummary[]; view: PrLi
         </button>
         <button
           className="toggle-chip"
-          onClick={() => set({ sort: view.sort === 'oldest' ? 'newest' : 'oldest' })}
+          onClick={() => updateView({ sort: view.sort === 'oldest' ? 'newest' : 'oldest' })}
           title={view.sort === 'oldest' ? 'Oldest first (click for newest first)' : 'Newest first (click for oldest first)'}
         >
           <SortIcon descending={view.sort === 'newest'} />
@@ -75,7 +71,7 @@ export function NeedsReviewersList({ prs, view }: { prs: PrSummary[]; view: PrLi
               {filtering && (
                 <>
                   <hr />
-                  <button role="menuitem" onClick={() => (set({ labels: [] }), setLabelsOpen(false))}>
+                  <button role="menuitem" onClick={() => (updateView({ labels: [] }), setLabelsOpen(false))}>
                     Clear filter
                   </button>
                 </>
@@ -91,7 +87,7 @@ export function NeedsReviewersList({ prs, view }: { prs: PrSummary[]; view: PrLi
           {shown === 0 && (
             <>
               {' · '}
-              <button className="link-button" onClick={() => set({ labels: [] })}>
+              <button className="link-button" onClick={() => updateView({ labels: [] })}>
                 Clear filter
               </button>
             </>
@@ -99,23 +95,23 @@ export function NeedsReviewersList({ prs, view }: { prs: PrSummary[]; view: PrLi
         </p>
       )}
 
-      {groups.map(({ repo, prs: list }) =>
+      {groups.map(({ repo, prs: groupPrs }) =>
         repo === null ? (
           <ul key="all" className="pr-list">
-            {list.map((pr) => (
+            {groupPrs.map((pr) => (
               <PrRow key={pr.url} pr={pr} showReviewers />
             ))}
           </ul>
         ) : (
           <section key={repo} className="pr-group">
-            <button className="pr-group-head" onClick={() => toggleGroup(repo)} aria-expanded={!collapsed.has(repo)} title={repo}>
-              <ChevronIcon open={!collapsed.has(repo)} />
+            <button className="pr-group-head" onClick={() => toggleRepo(repo)} aria-expanded={!collapsedRepos.has(repo)} title={repo}>
+              <ChevronIcon open={!collapsedRepos.has(repo)} />
               <span className="pr-group-name">{repo.split('/').pop()}</span>
-              <span className="pr-group-count">{list.length}</span>
+              <span className="pr-group-count">{groupPrs.length}</span>
             </button>
-            {!collapsed.has(repo) && (
+            {!collapsedRepos.has(repo) && (
               <ul className="pr-list">
-                {list.map((pr) => (
+                {groupPrs.map((pr) => (
                   <PrRow key={pr.url} pr={pr} showReviewers hideRepo />
                 ))}
               </ul>
