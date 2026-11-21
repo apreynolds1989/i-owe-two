@@ -47,7 +47,7 @@ export function createPanel(preload: string, icon: NativeImage): BrowserWindow {
     fullscreenable: false,
     skipTaskbar: true,
     hasShadow: false,
-    title: 'ReciPRocity',
+    title: 'IO2',
     icon,
     webPreferences: {
       preload,

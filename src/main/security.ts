@@ -64,7 +64,7 @@ const DANGEROUS_SWITCHES = [
 export function refuseDangerousSwitches(): void {
   const found = DANGEROUS_SWITCHES.filter((s) => app.commandLine.hasSwitch(s));
   if (found.length) {
-    console.error(`[reciprocity] Refusing to start with unsafe command-line switches: ${found.map((s) => `--${s}`).join(', ')}`);
+    console.error(`[i-owe-two] Refusing to start with unsafe command-line switches: ${found.map((s) => `--${s}`).join(', ')}`);
     // process.exit is synchronous, so nothing after this call in main.ts (lock, whenReady) gets to run.
     process.exit(1);
   }

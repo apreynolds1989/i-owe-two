@@ -1,6 +1,6 @@
 # Security
 
-ReciPRocity is designed so that the worst realistic outcome of anything going wrong is "someone could read pull-request titles and reviews". It should never be "someone could change code, run commands on my machine, or act as me on GitHub". This page explains how, so you can check before you run it.
+IO2 is designed so that the worst realistic outcome of anything going wrong is "someone could read pull-request titles and reviews". It should never be "someone could change code, run commands on my machine, or act as me on GitHub". This page explains how, so you can check before you run it.
 
 ## Your GitHub token
 
@@ -112,6 +112,6 @@ The maintainer accepts no liability for how this option is used, or for any cons
 
 ## Reporting a problem
 
-Please report security vulnerabilities privately, using GitHub's private vulnerability reporting (**Security** tab › [**Report a vulnerability**](https://github.com/apreynolds1989/reciprocity/security/advisories/new)). Don't open a public issue for them. Bugs that don't put users at risk can go in a normal issue.
+Please report security vulnerabilities privately, using GitHub's private vulnerability reporting (**Security** tab › [**Report a vulnerability**](https://github.com/apreynolds1989/i-owe-two/security/advisories/new)). Don't open a public issue for them. Bugs that don't put users at risk can go in a normal issue.
 
 This project is maintained on a voluntary, best-effort basis. The maintainer has no obligation to respond to issues, accept contributions, provide fixes or keep the project maintained, and may stop doing so at any time. It is provided as-is, as set out in the [LICENSE](LICENSE).

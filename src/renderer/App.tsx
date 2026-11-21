@@ -113,7 +113,7 @@ export function App() {
         {/* The page follows prefers-color-scheme (driven by the theme choice), so the title swaps without any JS. */}
         <picture className="brand">
           <source media="(prefers-color-scheme: dark)" srcSet={titleDark} />
-          <img src={titleLight} alt="ReciPRocity" height={30} />
+          <img src={titleLight} alt="IO2" height={30} />
         </picture>
         <div className="header-actions">
           {state.view === 'metrics' && (
@@ -187,7 +187,7 @@ export function App() {
                 )}
                 <hr />
                 <button role="menuitem" onClick={() => window.sprint.quit()}>
-                  Quit ReciPRocity
+                  Quit IO2
                 </button>
               </div>
             )}

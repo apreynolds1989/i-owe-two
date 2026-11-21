@@ -115,7 +115,7 @@ export async function graphql<T>(
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
-          'User-Agent': 'reciprocity',
+          'User-Agent': 'i-owe-two',
         },
         body: JSON.stringify({ query: doc, variables }),
         redirect: 'error', // never send the token anywhere else

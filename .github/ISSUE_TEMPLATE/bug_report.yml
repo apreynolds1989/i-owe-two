@@ -8,7 +8,7 @@ body:
         Thanks for taking the time to report this.
 
         **Never paste your GitHub token**, or anything from `token.bin`, into an issue. Issues are public.
-        For a security vulnerability, use [private vulnerability reporting](https://github.com/apreynolds1989/reciprocity/security/advisories/new) instead.
+        For a security vulnerability, use [private vulnerability reporting](https://github.com/apreynolds1989/i-owe-two/security/advisories/new) instead.
   - type: textarea
     id: what-happened
     attributes:

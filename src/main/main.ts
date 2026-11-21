@@ -320,12 +320,12 @@ function updateTray() {
   const m = lastTracked;
   if (!m) {
     tray.setImage(trayImage(icon, 'none'));
-    tray.setToolTip('ReciPRocity');
+    tray.setToolTip('IO2');
     return;
   }
   const r = reviewRatio(m.reviewed.count, m.authored.count, superMinReviews(windowDays(m.window)));
   tray.setImage(trayImage(icon, r.status));
-  tray.setToolTip(`ReciPRocity · ratio ${r.display} · ${r.label}`);
+  tray.setToolTip(`IO2 · ratio ${r.display} · ${r.label}`);
 }
 
 function setView(next: View) {
@@ -390,7 +390,7 @@ function rebuildTrayMenu() {
     click: () => setTheme(value),
   });
   const menu = Menu.buildFromTemplate([
-    { label: 'Open ReciPRocity', click: showPanel },
+    { label: 'Open IO2', click: showPanel },
     { label: 'Refresh', enabled: s.hasToken && !!s.settings, click: () => refresh() },
     { type: 'separator' },
     { label: 'Change range…', enabled: s.hasToken, click: () => (setView('start'), showPanel()) },
@@ -413,7 +413,7 @@ function rebuildTrayMenu() {
       click: (item) => (showPanel(), void setRememberTeammates(item.checked)),
     },
     { type: 'separator' },
-    { label: 'Quit ReciPRocity', click: () => app.quit() },
+    { label: 'Quit IO2', click: () => app.quit() },
   ]);
   tray.removeAllListeners('right-click');
   tray.on('right-click', () => tray.popUpContextMenu(menu));
@@ -577,7 +577,7 @@ function registerIpc() {
     const result = await withDialog(() =>
       dialog.showSaveDialog(win, {
         title: 'Export review history',
-        defaultPath: join(app.getPath('documents'), `reciprocity-history-${today()}.csv`),
+        defaultPath: join(app.getPath('documents'), `io2-history-${today()}.csv`),
         filters: [{ name: 'CSV', extensions: ['csv'] }],
       }),
     );
