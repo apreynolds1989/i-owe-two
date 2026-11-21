@@ -77,7 +77,7 @@ export function HistoryCard({ history, current }: { history: HistoryView; curren
           History
           <span className="metric-note">
             {history.readOnly
-              ? 'Saved by a newer version of ReciPRocity'
+              ? 'Saved by a newer version of IO2'
               : last
                 ? `Last period: ${shortRange(last.from, last.to)}`
                 : 'Builds up as your range rolls over'}
@@ -94,7 +94,7 @@ export function HistoryCard({ history, current }: { history: HistoryView; curren
         <div className="history-body">
           {history.readOnly && (
             <p className="muted small">
-              This history was saved by a newer version of ReciPRocity, so this version leaves it alone. Update the app to see it.
+              This history was saved by a newer version of IO2, so this version leaves it alone. Update the app to see it.
             </p>
           )}
           {history.active && periods.length > 0 && (

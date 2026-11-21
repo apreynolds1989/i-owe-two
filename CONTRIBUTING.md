@@ -1,13 +1,13 @@
-# Contributing to ReciPRocity
+# Contributing to IO2
 
-Thanks for your interest in improving ReciPRocity. Bug reports, suggestions and pull requests are all welcome.
+Thanks for your interest in improving IO2. Bug reports, suggestions and pull requests are all welcome.
 
 This project is maintained on a voluntary, best-effort basis. The maintainer has no obligation to respond to issues, review or accept pull requests, or keep the project maintained. Every change to `main` is merged by the maintainer, at their discretion.
 
 ## Reporting issues
 
 - **Bugs and feature requests:** open an issue using one of the templates.
-- **Security vulnerabilities:** use [private vulnerability reporting](https://github.com/apreynolds1989/reciprocity/security/advisories/new), not a public issue. See [SECURITY.md](SECURITY.md).
+- **Security vulnerabilities:** use [private vulnerability reporting](https://github.com/apreynolds1989/i-owe-two/security/advisories/new), not a public issue. See [SECURITY.md](SECURITY.md).
 - **Never include your GitHub token** in an issue, pull request, screenshot or log.
 
 ## Pull requests
@@ -26,7 +26,7 @@ For anything beyond a small fix, please open an issue first to discuss the chang
 
 ### What will be accepted
 
-ReciPRocity's security model is a core feature (see [SECURITY.md](SECURITY.md)). Changes are unlikely to be accepted if they:
+IO2's security model is a core feature (see [SECURITY.md](SECURITY.md)). Changes are unlikely to be accepted if they:
 
 - need anything beyond a read-only, fine-grained token, or make any change on GitHub
 - add any network destination other than `api.github.com`, or add telemetry, analytics or auto-update

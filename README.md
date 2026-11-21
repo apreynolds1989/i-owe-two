@@ -1,9 +1,11 @@
 <h1>
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/title-dark.png" />
-    <img src="assets/title-light.png" alt="ReciPRocity" height="80" />
+    <img src="assets/title-light.png" alt="IO2" height="80" />
   </picture>
 </h1>
+
+**IO2: *I owe two*.** Every PR you put up, you owe two reviews.
 
 A small tray app (like JetBrains Toolbox) that shows your GitHub pull-request numbers for your range (a day, a week, a two-week sprint, a month or a year):
 
@@ -32,15 +34,15 @@ Click a number to see its PRs (with how long ago each was opened); click a PR to
 It works for any GitHub account or organization; nothing in it is specific to one team.
 
 > [!IMPORTANT]
-> ReciPRocity was developed largely with the assistance of AI tools. Please read the [Disclaimer](#disclaimer) before you install or use it.
+> IO2 was developed largely with the assistance of AI tools. Please read the [Disclaimer](#disclaimer) before you install or use it.
 
 ## Install
 
 You need **Node.js 22 or newer**.
 
 ```bash
-git clone https://github.com/apreynolds1989/reciprocity.git
-cd reciprocity
+git clone https://github.com/apreynolds1989/i-owe-two.git
+cd i-owe-two
 npm ci
 ```
 
@@ -49,7 +51,7 @@ Then either:
 - **Run it from the repo:** `npm start`. This is handy for developers; everyone else should install it (below), which also gets you the extra hardening of the installed app.
 - **Install it as an app:**
   1. Run `npm run dist`.
-  2. Run the installer it creates in `release/`: `ReciPRocity Setup <version>.exe` on Windows, or the `.dmg` on Mac.
+  2. Run the installer it creates in `release/`: `IO2 Setup <version>.exe` on Windows, or the `.dmg` on Mac.
 
   After that it's in your Start menu (Windows) or Applications (Mac), and you don't need the terminal. Because you built it yourself, Windows and macOS don't show an "unknown app" warning.
 
@@ -60,7 +62,7 @@ Then either:
 The app asks for a GitHub **fine-grained personal access token** with **read-only** access. The app itself only ever reads from GitHub, and it refuses classic tokens because those can have broad access. It can't check a fine-grained token's permissions, though, so keep the token read-only as described below: that limits the damage if it's ever stolen.
 
 1. On GitHub, go to **Settings › Developer settings › Personal access tokens › Fine-grained tokens** and choose **Generate new token**. (Direct link: https://github.com/settings/personal-access-tokens)
-2. Name it **ReciPRocity** and pick an expiry. 90 days is a good default.
+2. Name it **IO2** and pick an expiry. 90 days is a good default.
 3. Set **Resource owner** to the organization, or your own account, whose pull requests you want to see. Set **Repository access** to **All repositories**.
 4. Under **Permissions**, set **Pull requests** to **Read-only**. **Metadata** is added as read-only automatically. Leave everything else as **No access**.
 5. Generate the token, copy it, and paste it into the app.
@@ -110,7 +112,7 @@ Installing a new version over the old one keeps your settings, token and history
 
 ## Removing it
 
-- **Installed app:** uninstall it from Windows Settings › Apps, or drag it out of Applications on Mac. The Windows uninstaller also deletes the app's saved data (including the encrypted token and your history) and the installer copy it keeps in `%LOCALAPPDATA%\reciprocity-updater`.
+- **Installed app:** uninstall it from Windows Settings › Apps, or drag it out of Applications on Mac. The Windows uninstaller also deletes the app's saved data (including the encrypted token and your history) and the installer copy it keeps in `%LOCALAPPDATA%\i-owe-two-updater`.
 - **History:** uninstalling deletes it. To keep a copy, use **⋯ › Export history…** first.
 - **Token:** to switch off its access completely, delete it on GitHub at https://github.com/settings/personal-access-tokens. In the app, **Change token… › Remove the saved token** deletes it from your computer.
 
@@ -151,9 +153,9 @@ Layout:
 
 ## Disclaimer
 
-ReciPRocity was developed largely with the assistance of AI tools. While care has been taken over its design, security and testing, AI-assisted software can contain errors or security weaknesses that aren't immediately apparent.
+IO2 was developed largely with the assistance of AI tools. While care has been taken over its design, security and testing, AI-assisted software can contain errors or security weaknesses that aren't immediately apparent.
 
-The software is provided "as is", without warranty of any kind, as set out in the [LICENSE](LICENSE). Use of ReciPRocity is entirely at your own discretion and risk. Before installing it or giving it a GitHub token, please review the source code and [SECURITY.md](SECURITY.md), and decide whether it meets your own and your organization's requirements. If your organization has policies on third-party or AI-assisted tools, check that using ReciPRocity complies with them.
+The software is provided "as is", without warranty of any kind, as set out in the [LICENSE](LICENSE). Use of IO2 is entirely at your own discretion and risk. Before installing it or giving it a GitHub token, please review the source code and [SECURITY.md](SECURITY.md), and decide whether it meets your own and your organization's requirements. If your organization has policies on third-party or AI-assisted tools, check that using IO2 complies with them.
 
 The maintainer accepts no liability for any loss, damage or other consequences arising from its use.
 

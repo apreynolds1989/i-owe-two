@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: Report a security vulnerability
-    url: https://github.com/apreynolds1989/reciprocity/security/advisories/new
+    url: https://github.com/apreynolds1989/i-owe-two/security/advisories/new
     about: Please report vulnerabilities privately rather than in a public issue.

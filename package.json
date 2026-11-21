@@ -1,11 +1,11 @@
 {
-  "name": "reciprocity",
-  "productName": "ReciPRocity",
-  "version": "0.4.0",
+  "name": "i-owe-two",
+  "productName": "IO2",
+  "version": "0.5.0",
   "private": true,
   "license": "MIT",
   "type": "module",
-  "description": "Tray widget showing your PRs authored and reviewed this sprint, your review ratio, and open PRs still needing reviewers",
+  "description": "I owe two: every PR you put up, you owe two reviews. Tray widget showing your PRs authored and reviewed this sprint, your review ratio, and open PRs still needing reviewers",
   "main": "dist/main.js",
   "engines": {
     "node": ">=22"
@@ -41,8 +41,8 @@
     }
   },
   "build": {
-    "appId": "io.github.apreynolds1989.reciprocity",
-    "productName": "ReciPRocity",
+    "appId": "io.github.apreynolds1989.i-owe-two",
+    "productName": "IO2",
     "directories": {
       "output": "release"
     },
