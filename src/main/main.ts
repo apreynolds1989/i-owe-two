@@ -64,6 +64,10 @@ refuseDangerousSwitches(); // e.g. --ignore-certificate-errors, --remote-debuggi
 // nothing in this process can be told to skip certificate checks or trust extra certificates.
 delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
 delete process.env.NODE_EXTRA_CA_CERTS;
+// Not belt and braces: Chromium does read this one, and writes every TLS session key to the file it
+// names (often set globally for Wireshark). Removed here, before app ready, so the network service
+// never sees it. The --ssl-key-log-file switch is refused above instead, like the other switches.
+delete process.env.SSLKEYLOGFILE;
 
 app.enableSandbox(); // every renderer is sandboxed, whatever its webPreferences say
 registerAppScheme();
