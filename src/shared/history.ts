@@ -25,9 +25,9 @@ export interface Period {
   /** True once the period ended and its numbers were fetched one last time. */
   final: boolean;
   updatedAt: string;
-  /** How many people this person reviewed PRs for (a count, no names). Missing in periods from before 0.4.0. */
+  /** How many people this person reviewed PRs for (a count, no names). Optional: a missing or invalid count is dropped, keeping the period. */
   reviewedFor?: number;
-  /** How many people reviewed this person's PRs (a count, no names). Missing in periods from before 0.4.0. */
+  /** How many people reviewed this person's PRs (a count, no names). Optional: a missing or invalid count is dropped, keeping the period. */
   reviewedBy?: number;
   /** Opt-in only: the most-traded teammates, at most MAX_STORED_PARTNERS. Removed by forgetPartners. */
   partners?: Partner[];

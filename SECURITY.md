@@ -85,7 +85,6 @@ The UI is built with Electron and follows Electron's [security checklist](https:
   - It's never included in **Export history**.
   - Switching it off deletes every stored username, including in archived history.
   - Turning it on and off both ask first.
-  - Downgrading to a version before 0.4.0 drops the stored usernames the next time it saves History.
 - **Why it's off by default:** it's a record about other people, who haven't opted in. Over time it shows who reviews whose work. Before switching it on, check that it fits your team's expectations and your organization's policies, including any rules on keeping data about colleagues.
 
 The Give & take list itself is worked out fresh on every refresh and never saved unless this option is on.

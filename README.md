@@ -108,7 +108,7 @@ npm ci
 npm start          # or: npm run dist, then run the new installer
 ```
 
-Installing a new version over the old one keeps your settings, token and history. Settings from 0.1.x are converted: a 7-day window becomes a Week range, anything else a Two weeks range, starting on its first day. Please update now and then: new Electron versions include Chromium security fixes.
+Installing a new version over the old one keeps your settings, token and history. Please update now and then: new Electron versions include Chromium security fixes.
 
 ## Removing it
 

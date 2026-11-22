@@ -248,14 +248,11 @@ expect('error' in parseView({ kind: 'custom', from: '2026-11-21', to: '2026-11-0
 expect('error' in parseView({ kind: 'custom', from: '2026-11-09 repo:x', to: '2026-11-21' }), 'refuses injected custom dates');
 expect('error' in parseView('tracked') && 'error' in parseView({ kind: 'everything' }), 'refuses anything else');
 
-section('Saved settings (including 0.1.x)');
-const old = (from: string, to: string) => validSettings({ owner: 'octo-org', login: 'alice', from, to, ignoreLabels: ['wip'] });
-const oldWeek = old('2026-11-09', '2026-11-15');
-expect(oldWeek?.range.kind === 'week' && oldWeek.range.start === '2026-11-09', 'an old 7-day window becomes Week from its first day');
-expect(old('2026-11-09', '2026-11-22')?.range.kind === 'twoWeeks', 'an old 14-day window becomes Two weeks');
-const oldOdd = old('2026-11-09', '2026-11-21');
-expect(oldOdd?.range.kind === 'twoWeeks' && oldOdd.range.start === '2026-11-09', 'any other old window becomes Two weeks from its first day');
-expect(old('2026-11-21', '2026-11-09') === null, 'an invalid old window is dropped');
+section('Saved settings');
+expect(
+  validSettings({ owner: 'octo-org', login: 'alice', from: '2026-11-09', to: '2026-11-15', ignoreLabels: [] }) === null,
+  'fixed from/to dates without a range are refused',
+);
 const current = validSettings({ owner: 'octo-org', login: 'alice', range: { kind: 'month', start: '2026-11-15' }, ignoreLabels: [] });
 expect(current?.range.kind === 'month', 'new-style settings load');
 expect(validSettings({ owner: 'octo-org', login: 'alice', range: { kind: 'hour', start: '2026-11-15' }, ignoreLabels: [] }) === null, 'a bad range kind is refused');
