@@ -636,10 +636,12 @@ none(offenders(/from ['"](?!electron['"]|\.\.\/shared\/)/, (p) => p.startsWith('
 none(offenders(/exposeInMainWorld\([^)]*ipcRenderer\s*\)/), 'raw ipcRenderer is never exposed');
 const mainSrc = source.find((f) => f.path === 'src/main/main.ts')?.text ?? '';
 expect(/^refuseDangerousSwitches\(\);/m.test(mainSrc), 'main.ts refuses unsafe Chromium switches at startup');
+expect(/^delete process\.env\.SSLKEYLOGFILE;/m.test(mainSrc), 'main.ts removes SSLKEYLOGFILE before the app is ready');
 const html = source.find((f) => f.path === 'src/renderer/index.html')?.text ?? '';
 expect(/connect-src 'none'/.test(html) && /script-src 'self'/.test(html), "index.html CSP blocks network access and foreign scripts");
 const security = source.find((f) => f.path === 'src/main/security.ts')?.text ?? '';
 expect(/"connect-src 'none'"/.test(security) && !/unsafe-inline|unsafe-eval/.test(security), 'the CSP response header blocks network access, inline and eval');
+expect(/'ssl-key-log-file'/.test(security), 'the --ssl-key-log-file switch is refused');
 
 console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');
 process.exit(failures ? 1 : 0);

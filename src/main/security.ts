@@ -46,6 +46,7 @@ const MIME: Record<string, string> = {
  * (e.g. by editing its login item). Fuses only cover Node's flags, not these:
  * - certificate and DNS overrides could send the token to a forged api.github.com
  * - a net log in "Everything" mode writes the Authorization header to disk
+ * - a TLS key log writes the session keys to disk, so captured traffic (and the token in it) can be decrypted
  * - remote debugging opens a DevTools protocol port
  * proxy-server is deliberately absent: corporate networks use it legitimately, and TLS still applies.
  */
@@ -55,6 +56,7 @@ const DANGEROUS_SWITCHES = [
   'host-resolver-rules',
   'host-rules',
   'log-net-log',
+  'ssl-key-log-file',
   'remote-debugging-port',
   'remote-debugging-pipe',
   'remote-allow-origins',

@@ -14,7 +14,8 @@ IO2 is designed so that the worst realistic outcome of anything going wrong is "
   - Anything token-shaped is scrubbed from every error message and log line.
 - **Proper certificate checks.** Requests go through Electron's Chromium network stack, which checks GitHub's certificate against your operating system's certificate store. They use a separate in-memory session that can only reach `api.github.com`.
   - Node's `NODE_TLS_REJECT_UNAUTHORIZED=0` and `NODE_EXTRA_CA_CERTS`, which some machines set globally, can't switch certificate checking off or add certificates for these requests. The app removes them at startup anyway.
-  - The app refuses to start if it's launched with Chromium switches that could weaken this or expose the token: `--ignore-certificate-errors`, `--host-resolver-rules`, `--host-rules`, `--log-net-log` and remote debugging. A system proxy (`--proxy-server`) is still allowed; certificates are checked through it as normal.
+  - `SSLKEYLOGFILE`, which some developers set globally for Wireshark, would make Chromium write the TLS session keys to disk, so captured traffic (and the token in it) could be decrypted. The app removes it at startup, before any request is made.
+  - The app refuses to start if it's launched with Chromium switches that could weaken this or expose the token: `--ignore-certificate-errors`, `--host-resolver-rules`, `--host-rules`, `--log-net-log`, `--ssl-key-log-file` and remote debugging. A system proxy (`--proxy-server`) is still allowed; certificates are checked through it as normal.
 - **Clipboard.** Copied text can stay in clipboard history (Windows: Win + V, including cloud clipboard if you use it). After saving the token you can delete it from there.
 - **Removable.** Use **Change token… › Remove the saved token** in the app, or delete the token on GitHub at any time.
 

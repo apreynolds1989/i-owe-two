@@ -47,10 +47,12 @@ if (!process.argv.includes('--build-only')) {
   const electronBinary = createRequire(import.meta.url)('electron') as unknown as string;
   // Run from the repo there are no fuses, so strip what the installed app's fuses would block:
   // ELECTRON_RUN_AS_NODE (plain-Node mode), NODE_OPTIONS (IDE terminals often add --require or
-  // --inspect, which would open an unauthenticated debugger on the process holding the token), and
-  // the TLS overrides.
+  // --inspect, which would open an unauthenticated debugger on the process holding the token), the
+  // TLS overrides, and SSLKEYLOGFILE (TLS session keys written to disk; main.ts also removes it).
   const env = { ...process.env };
-  for (const name of ['ELECTRON_RUN_AS_NODE', 'NODE_OPTIONS', 'NODE_TLS_REJECT_UNAUTHORIZED', 'NODE_EXTRA_CA_CERTS', 'ELECTRON_ENABLE_LOGGING']) {
+  for (const name of [
+    'ELECTRON_RUN_AS_NODE', 'NODE_OPTIONS', 'NODE_TLS_REJECT_UNAUTHORIZED', 'NODE_EXTRA_CA_CERTS', 'ELECTRON_ENABLE_LOGGING', 'SSLKEYLOGFILE',
+  ]) {
     delete env[name];
   }
   console.log('[i-owe-two] Starting. Look for the icon in your system tray (or menu bar). Quit from its menu.');
