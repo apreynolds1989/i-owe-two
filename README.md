@@ -5,6 +5,8 @@
   </picture>
 </h1>
 
+[![Latest release](https://img.shields.io/github/v/release/apreynolds1989/i-owe-two)](https://github.com/apreynolds1989/i-owe-two/releases/latest)
+
 **IO2: *I owe two*.** Every PR you put up, you owe two reviews.
 
 A small tray app (like JetBrains Toolbox) that shows your GitHub pull-request numbers for your range (a day, a week, a two-week sprint, a month or a year):
